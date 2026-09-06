@@ -91,6 +91,22 @@ describe('jobs', () => {
     expect(state.grid.isWalkable(hole.tiles[0]!.c, hole.tiles[0]!.r)).toBe(false)
   })
 
+  it('an unreachable section refuses the job and keeps the boards', () => {
+    const state = fresh()
+    const ivan = state.people[0]!
+    const hole = state.sections.find((s) => s.kind === 'fence' && s.state === 'hole')!
+    // Wall the section in with trees on both sides: nowhere to stand.
+    for (const t of hole.tiles) {
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        if (state.grid.inBounds(t.c + dc, t.r + dr) && state.grid.isWalkable(t.c + dc, t.r + dr)) state.grid.setTrees(t.c + dc, t.r + dr, 2)
+      }
+    }
+    const boards = state.res.boards
+    expect(assignSection(state, ivan, hole.id, 'repair')).toBe('noPath')
+    expect(state.res.boards).toBe(boards)
+    expect(hole.op).toBeNull()
+  })
+
   it('work goes on through the attack hours: night is not bedtime inside the fence', () => {
     const state = fresh()
     // A sealed perimeter, so the enemies stay at the fence and the yard is safe for now.

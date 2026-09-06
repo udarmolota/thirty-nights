@@ -18,7 +18,7 @@
     { "id": "ivan", "name": "Иван", "sprite": "person_ivan", "work": 1.2, "speed": 1.0, "carry": 10 },
     { "id": "marta", "name": "Марта", "sprite": "person_marta", "work": 0.9, "speed": 1.3, "carry": 7 }
   ],
-  "walkTilesPerMinute": 0.5,
+  "walkTilesPerMinute": 3,
   "food": { "perPersonPerDay": 1, "hungerHealthPerDay": 10 },
   "production": {
     "chopWoodPerHour": 26,

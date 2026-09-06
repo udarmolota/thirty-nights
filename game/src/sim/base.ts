@@ -39,7 +39,7 @@ const LAYOUT: Layout = {
     [{ c: 26, r: 11 }, { c: 27, r: 11 }],
     [{ c: 31, r: 11 }, { c: 32, r: 11 }],
     [{ c: 36, r: 11 }, { c: 37, r: 11 }],
-    [{ c: 22, r: 29 }],
+    [{ c: 22, r: 28 }, { c: 22, r: 29 }],
   ],
   doors: [
     { c: 27, r: 24 }, // hall <-> office
@@ -262,7 +262,7 @@ export function buildBase(state: GameState): void {
   wallRun(annexEast, 'v')
   wallRun(south, 'h')
   wallRun(west, 'v')
-  for (const w of LAYOUT.windows) sections.push(makeSection(sections.length, 'window', w, w.length > 1 ? 'h' : 'v'))
+  for (const w of LAYOUT.windows) sections.push(makeSection(sections.length, 'window', w, w.length > 1 && w[0]!.r === w[1]!.r ? 'h' : 'v'))
 
   state.sections = sections
   for (const s of sections) applyToGrid(g, s)

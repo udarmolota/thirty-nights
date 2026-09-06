@@ -3,7 +3,7 @@
  * a bigger room gets proportionally less. Windows, doors to the cold, holes
  * and boarded windows leak. Below 0 C the people sleeping there lose health.
  */
-import { structureDef, StructureType } from '../world'
+import { structureDef, StructureType, type Room } from '../world'
 import type { GameState } from './state'
 import { STEP_MIN } from './time'
 import balance from '../data/balance.json'
@@ -38,38 +38,59 @@ export function computeTemps(state: GameState): RoomTemps {
     const id = stoveRoom(state, i)
     if (id >= 0) stoves.set(id, (stoves.get(id) ?? 0) + 1)
   })
-  const temps = new Map<number, number>()
   const g = state.grid
-  for (const room of data.rooms) {
-    if (!room.indoor) {
-      temps.set(room.id, H.outside)
-      continue
-    }
+
+  const heatOf = (room: Room): number => {
     const lit = stoves.get(room.id) ?? 0
-    const heat = lit * H.stoveHeat * Math.min(1, H.stoveArea / Math.max(1, room.tiles))
+    return lit * H.stoveHeat * Math.min(1, H.stoveArea / Math.max(1, room.tiles))
+  }
+  // A window or a hole is one opening however many tiles its section spans:
+  // leaks are counted per section, not per tile.
+  const sectionByTile = new Map<number, number>()
+  for (const s of state.sections) for (const t of s.tiles) sectionByTile.set(g.idx(t.c, t.r), s.id)
+  /** Sum the leaks around a room; `doorLeaks` decides for each door tile. */
+  const leaksOf = (room: Room, doorLeaks: (c: number, r: number) => boolean): number => {
     let leak = 0
+    const counted = new Set<number>()
     for (const idx of room.boundary) {
       const c = idx % g.w
       const r = (idx - c) / g.w
       const type = g.structureAt(c, r)
       const def = structureDef(type)
       if (!def || def.leak === 0) continue
-      if (type === StructureType.Door || type === StructureType.Gate) {
-        // A door only leaks toward a colder region: another heated room is fine.
-        let warmBothSides = true
-        for (const [dc, dr] of ADJ) {
-          const other = state.roomAt(c + dc, r + dr)
-          if (other < 0 || other === room.id) continue
-          const otherRoom = data.rooms[other]!
-          if (!otherRoom.indoor || (stoves.get(other) ?? 0) === 0) warmBothSides = false
-        }
-        if (warmBothSides) continue
+      if ((type === StructureType.Door || type === StructureType.Gate) && !doorLeaks(c, r)) continue
+      const section = sectionByTile.get(idx)
+      if (section !== undefined) {
+        if (counted.has(section)) continue
+        counted.add(section)
       }
       leak += def.leak
     }
-    // Leaks eat the stove's heat; an unheated room is as cold as outside, not colder.
-    temps.set(room.id, H.outside + Math.max(0, heat - leak))
+    return leak
   }
+  const pass = (doorLeaks: (room: Room) => (c: number, r: number) => boolean): Map<number, number> => {
+    const temps = new Map<number, number>()
+    for (const room of data.rooms) {
+      // Leaks eat the stove's heat; an unheated room is as cold as outside, not colder.
+      temps.set(room.id, room.indoor ? H.outside + Math.max(0, heatOf(room) - leaksOf(room, doorLeaks(room))) : H.outside)
+    }
+    return temps
+  }
+
+  // Two passes, no circularity: first every door leaks; then a door leaks
+  // only toward a side that came out colder in the first pass. A door to a
+  // room that is just as warm loses nothing - and a lit stove in a room that
+  // stays freezing does not count as warmth.
+  const first = pass(() => () => true)
+  const temps = pass((room) => (c, r) => {
+    const mine = first.get(room.id) ?? H.outside
+    for (const [dc, dr] of ADJ) {
+      const other = state.roomAt(c + dc, r + dr)
+      if (other < 0 || other === room.id) continue
+      if ((first.get(other) ?? H.outside) < mine) return true
+    }
+    return false
+  })
   return { temps, stoves }
 }
 

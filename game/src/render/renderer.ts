@@ -6,11 +6,12 @@
  */
 import type { Camera } from './camera'
 import { SPRITE_PX_PER_TILE, type SpriteName, type Sprites } from './sprites'
-import { StructureType, Terrain } from '../world'
+import { StructureType, structureDef, Terrain } from '../world'
 import type { GameState, Stove } from '../sim/state'
 import type { RoomTemps } from '../sim/heat'
 import type { Section } from '../sim/sections'
 import { darkness } from '../sim/time'
+import { stoveRoom } from '../sim/heat'
 import { GATE } from '../sim/base'
 
 export interface Selection {
@@ -19,6 +20,12 @@ export interface Selection {
 }
 
 const SNOW = '#dfe7f2' // fallback while the snow texture is loading
+/** The snow textures are authored at this many pixels per tile (512 px = 16 tiles). */
+const SNOW_PX_PER_TILE = 32
+/** Night darkening of everything above the ground, at full darkness. */
+const NIGHT_TINT = 0.45
+/** Plank floors: 512 px = 4 tiles, so a plank is about half a tile wide and objects read against it. */
+const FLOOR_PX_PER_TILE = 128
 const SNOW_PATH = '#cfd9e8'
 /** Trodden path over the snow texture: a translucent darkening, so the texture shows through. */
 const PATH_TINT = 'rgba(96, 118, 148, 0.22)'
@@ -41,11 +48,28 @@ const FENCE_SPRITE: Record<Section['state'], SpriteName> = {
   missing: 'fence_broken',
 }
 
+/** A window section's sprite: boarded shows the planks, an open one the hole, anything else the glass. */
+function windowSprite(section: Section): SpriteName {
+  if (section.state === 'hole' || section.state === 'missing') return 'window_broken'
+  return section.boarded ? 'window_boarded' : 'window_intact'
+}
+
+const WALL_SPRITE: Record<Section['state'], SpriteName> = {
+  intact: 'wall_intact', damaged: 'wall_damaged', hole: 'wall_broken',
+  reinforced: 'wall_reinforced', missing: 'wall_broken',
+}
+
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D
   private dpr = 1
-  /** Repeating snow pattern, built once from the 'snow' sprite (16x16 tiles per repeat). */
+  /** Repeating snow patterns (day and night), built once from the sprites; 16x16 tiles per repeat. */
   private snowPattern: CanvasPattern | null = null
+  private snowNightPattern: CanvasPattern | null = null
+  /** Plank floors by room kind (1 hall, 2 office, 3 storeroom); 8x8 tiles per repeat. */
+  private floorPatterns: Array<CanvasPattern | null> = [null, null, null, null]
+  /** Floor kind per tile (0 = not a floor), rebuilt when the structures change. */
+  private floorKind: Uint8Array | null = null
+  private floorVersion = -1
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -83,18 +107,39 @@ export class Renderer {
     const sy = (r: number): number => origin.y + r * ts
 
     // --- ground ---------------------------------------------------------------
+    // Two paintings of the same snow, day and night, cross-faded by darkness:
+    // a painted night keeps the drifts readable where a flat tint would not.
+    const dark = darkness(state.totalMinutes)
     const snowImg = this.sprites.get('snow')
+    const nightImg = this.sprites.get('snow_night')
     if (snowImg && this.snowPattern === null) this.snowPattern = ctx.createPattern(snowImg, 'repeat')
+    if (nightImg && this.snowNightPattern === null) this.snowNightPattern = ctx.createPattern(nightImg, 'repeat')
+    // The textures are 32 px per tile: scale them with the camera and pin them
+    // to the map origin so they scroll with the world.
+    const snowTransform = new DOMMatrix().translate(origin.x, origin.y).scale(ts / SNOW_PX_PER_TILE)
     if (this.snowPattern) {
-      // The texture is authored at the sprite scale: scale it with the camera and
-      // pin it to the map origin so it scrolls with the world.
-      this.snowPattern.setTransform(new DOMMatrix().translate(origin.x, origin.y).scale(ts / SPRITE_PX_PER_TILE))
+      this.snowPattern.setTransform(snowTransform)
       ctx.fillStyle = this.snowPattern
     } else {
       ctx.fillStyle = SNOW
     }
     ctx.fillRect(sx(0), sy(0), grid.w * ts, grid.h * ts)
+    if (dark > 0 && this.snowNightPattern) {
+      this.snowNightPattern.setTransform(snowTransform)
+      ctx.globalAlpha = dark
+      ctx.fillStyle = this.snowNightPattern
+      ctx.fillRect(sx(0), sy(0), grid.w * ts, grid.h * ts)
+      ctx.globalAlpha = 1
+    }
     const rooms = state.rooms()
+    const floorKind = this.floorKinds(state)
+    const floorTransform = new DOMMatrix().translate(origin.x, origin.y).scale(ts / FLOOR_PX_PER_TILE)
+    const FLOOR_SPRITES: SpriteName[] = ['floor_hall', 'floor_hall', 'floor_office', 'floor_store']
+    for (let k = 1; k <= 3; k++) {
+      const img = this.sprites.get(FLOOR_SPRITES[k]!)
+      if (img && this.floorPatterns[k] === null) this.floorPatterns[k] = ctx.createPattern(img, 'repeat')
+      this.floorPatterns[k]?.setTransform(floorTransform)
+    }
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
         const t = grid.terrainAt(c, r)
@@ -102,11 +147,17 @@ export class Renderer {
           ctx.fillStyle = this.snowPattern ? PATH_TINT : SNOW_PATH
           ctx.fillRect(sx(c), sy(r), ts + 0.5, ts + 0.5)
         } else if (t === Terrain.Floor) {
-          ctx.fillStyle = FLOOR
-          ctx.fillRect(sx(c), sy(r), ts + 0.5, ts + 0.5)
-          if (ts >= 8) {
-            ctx.fillStyle = FLOOR_LINE
-            ctx.fillRect(sx(c), sy(r) + ts - 1, ts + 0.5, 1)
+          const pattern = floorKind ? this.floorPatterns[floorKind[grid.idx(c, r)]!] : null
+          if (pattern) {
+            ctx.fillStyle = pattern
+            ctx.fillRect(sx(c), sy(r), ts + 0.5, ts + 0.5)
+          } else {
+            ctx.fillStyle = FLOOR
+            ctx.fillRect(sx(c), sy(r), ts + 0.5, ts + 0.5)
+            if (ts >= 8) {
+              ctx.fillStyle = FLOOR_LINE
+              ctx.fillRect(sx(c), sy(r) + ts - 1, ts + 0.5, 1)
+            }
           }
         }
       }
@@ -130,16 +181,26 @@ export class Renderer {
     }
 
     // --- structures: walls, openings, furniture ----------------------------------
+    // Do not paint a solid procedural wall underneath transparent sprite gaps.
+    const spriteWallTiles = new Set<number>()
+    for (const section of state.sections) {
+      const sprite = section.kind === 'wall' ? WALL_SPRITE[section.state] : section.kind === 'window' ? windowSprite(section) : null
+      if (!sprite || !this.sprites.get(sprite)) continue
+      for (const tile of section.tiles) spriteWallTiles.add(grid.idx(tile.c, tile.r))
+    }
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
         const s = grid.structureAt(c, r)
         if (s === StructureType.None || grid.isExtension(c, r)) continue
+        if (spriteWallTiles.has(grid.idx(c, r))) continue
         this.drawStructure(state, s, c, r, sx(c), sy(r), ts, nowMs)
       }
     }
 
     // --- fence sections (sprites) -------------------------------------------------
     for (const section of state.sections) {
+      if (section.kind === 'wall') this.drawWall(section, sx, sy, ts)
+      if (section.kind === 'window') this.drawWindow(section, sx, sy, ts)
       if (section.kind !== 'fence') continue
       this.drawFence(section, sx, sy, ts)
     }
@@ -199,7 +260,7 @@ export class Renderer {
       ctx.save()
       ctx.translate(x, y)
       ctx.rotate(p.heading - Math.PI / 2) // the sprites face down (+y) when unrotated
-      if (img) ctx.drawImage(img, -size / 2, -size / 2, size, size)
+      if (img) this.withShadow(ts, () => ctx.drawImage(img, -size / 2, -size / 2, size, size))
       else {
         ctx.fillStyle = p.id === 'ivan' ? '#4f86b0' : '#3f7a5a'
         ctx.beginPath()
@@ -229,9 +290,10 @@ export class Renderer {
     }
 
     // --- night and light ---------------------------------------------------------------
-    const dark = darkness(state.totalMinutes)
+    // The ground already wears its night painting; this tint is for everything
+    // standing on it, so it is lighter than a tint that had to darken the snow too.
     if (dark > 0) {
-      ctx.fillStyle = `rgba(20, 26, 46, ${0.62 * dark})`
+      ctx.fillStyle = `rgba(20, 26, 46, ${NIGHT_TINT * dark})`
       ctx.fillRect(sx(0), sy(0), grid.w * ts, grid.h * ts)
       for (const stove of state.stoves) {
         if (!stove.lit) continue
@@ -261,6 +323,26 @@ export class Renderer {
         return
       }
       case StructureType.Partition: {
+        const img = this.sprites.get('partition')
+        if (img) {
+          // One tile of a four-tile plank strip; consecutive tiles take consecutive
+          // quarters, so any run - including ones the player builds - reads as one wall.
+          const g = state.grid
+          const joins = (cc: number, rr: number): boolean => {
+            if (!g.inBounds(cc, rr)) return false
+            const d = structureDef(g.structureAt(cc, rr))
+            return d !== null && (d.wallLike || d.doorLike)
+          }
+          const alongX = joins(c - 1, r) || joins(c + 1, r)
+          const quarter = img.naturalWidth / 4
+          const sxOff = ((alongX ? c : r) % 4) * quarter
+          ctx.save()
+          ctx.translate(x + ts / 2, y + ts / 2)
+          if (!alongX) ctx.rotate(Math.PI / 2)
+          ctx.drawImage(img, sxOff, 0, quarter, img.naturalHeight, -ts / 2, -ts / 2, ts + 0.5, ts + 0.5)
+          ctx.restore()
+          return
+        }
         ctx.fillStyle = PARTITION
         ctx.fillRect(x, y, ts + 0.5, ts + 0.5)
         ctx.strokeStyle = WALL
@@ -297,6 +379,22 @@ export class Renderer {
         return
       }
       case StructureType.Door: {
+        const img = this.sprites.get('door')
+        if (img) {
+          // The leaf with its two posts, a little wider than the tile so the
+          // posts overlap the wall ends; turned to lie along the wall.
+          const g = state.grid
+          const wallLike = (cc: number, rr: number): boolean => g.inBounds(cc, rr) && (structureDef(g.structureAt(cc, rr))?.wallLike ?? false)
+          const alongX = wallLike(c - 1, r) || wallLike(c + 1, r)
+          const width = ts * 1.5
+          const height = (width * img.naturalHeight) / img.naturalWidth
+          ctx.save()
+          ctx.translate(x + ts / 2, y + ts / 2)
+          if (!alongX) ctx.rotate(Math.PI / 2)
+          ctx.drawImage(img, -width / 2, -height / 2, width, height)
+          ctx.restore()
+          return
+        }
         ctx.fillStyle = DOOR
         ctx.fillRect(x, y, ts + 0.5, ts + 0.5)
         ctx.strokeStyle = WALL
@@ -313,6 +411,19 @@ export class Renderer {
         const vertical = state.grid.extCellOf(c, r)?.r === r + 1
         const w = vertical ? ts : ts * 2
         const h = vertical ? ts * 2 : ts
+        const img = this.sprites.get('bed')
+        if (img) {
+          // The cot is drawn head-up on a 1x2 footprint; a horizontal bed turns it on its side.
+          if (vertical) this.drawProp(img, x, y, ts, 1, 2, 1.1)
+          else {
+            ctx.save()
+            ctx.translate(x + ts, y + ts / 2)
+            ctx.rotate(-Math.PI / 2)
+            this.drawProp(img, -ts / 2, -ts, ts, 1, 2, 1.1)
+            ctx.restore()
+          }
+          return
+        }
         ctx.fillStyle = '#55483a'
         ctx.fillRect(x + 1, y + 1, w - 2, h - 2)
         ctx.fillStyle = '#dfe7f2'
@@ -324,6 +435,11 @@ export class Renderer {
         return
       }
       case StructureType.Sawhorse: {
+        const img = this.sprites.get('sawhorse')
+        if (img) {
+          this.drawProp(img, x, y, ts, 2, 1, 1.1)
+          return
+        }
         ctx.fillStyle = PARTITION
         ctx.fillRect(x + 2, y + ts * 0.3, ts * 2 - 4, ts * 0.4)
         ctx.strokeStyle = WALL
@@ -337,6 +453,11 @@ export class Renderer {
         return
       }
       case StructureType.Woodpile: {
+        const img = this.sprites.get('woodpile')
+        if (img) {
+          this.drawProp(img, x, y, ts, 2, 1, 1.0)
+          return
+        }
         for (let i = 0; i < 5; i++) {
           const cx = x + ts * (0.35 + (i % 3) * 0.6) + (i >= 3 ? ts * 0.3 : 0)
           const cy = y + ts * (i >= 3 ? 0.35 : 0.7)
@@ -352,6 +473,11 @@ export class Renderer {
         return
       }
       case StructureType.Storage: {
+        const img = this.sprites.get('crate')
+        if (img) {
+          this.drawProp(img, x, y, ts, 1, 1, 1.35)
+          return
+        }
         ctx.fillStyle = '#a3865c'
         ctx.fillRect(x + 1, y + 1, ts - 2, ts - 2)
         ctx.strokeStyle = WALL
@@ -370,19 +496,121 @@ export class Renderer {
     }
   }
 
+  /**
+   * Which plank floor each tile wears: the room's own (by the stove that
+   * heats it), and for tiles under furniture, doors and partitions the floor
+   * of a neighbouring tile. Cached until the structures change.
+   */
+  private floorKinds(state: GameState): Uint8Array {
+    const grid = state.grid
+    if (this.floorKind && this.floorVersion === grid.structureVersion) return this.floorKind
+    const rooms = state.rooms()
+    const kindOfRoom = new Map<number, number>()
+    for (let i = 0; i < state.stoves.length; i++) kindOfRoom.set(stoveRoom(state, i), i === 0 ? 1 : i === 1 ? 2 : 3)
+    const kind = new Uint8Array(grid.w * grid.h)
+    for (let r = 0; r < grid.h; r++) {
+      for (let c = 0; c < grid.w; c++) {
+        if (grid.terrainAt(c, r) !== Terrain.Floor) continue
+        const room = rooms.roomIdByTile[grid.idx(c, r)]!
+        kind[grid.idx(c, r)] = room >= 0 ? (kindOfRoom.get(room) ?? 1) : 0
+      }
+    }
+    // Boundary tiles (furniture, doors, partitions) borrow a neighbour's floor; two passes reach corners.
+    for (let pass = 0; pass < 2; pass++) {
+      for (let r = 0; r < grid.h; r++) {
+        for (let c = 0; c < grid.w; c++) {
+          const i = grid.idx(c, r)
+          if (grid.terrainAt(c, r) !== Terrain.Floor || kind[i] !== 0) continue
+          for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            if (!grid.inBounds(c + dc, r + dr)) continue
+            const k = kind[grid.idx(c + dc, r + dr)]!
+            if (k > 0) {
+              kind[i] = k
+              break
+            }
+          }
+        }
+      }
+    }
+    for (let i = 0; i < kind.length; i++) if (kind[i] === 0 && grid.terrainAt(i % grid.w, (i - (i % grid.w)) / grid.w) === Terrain.Floor) kind[i] = 1
+    this.floorKind = kind
+    this.floorVersion = grid.structureVersion
+    return kind
+  }
+
+  /** A sprite centred on a footprint of w x h tiles, scaled up by `grow` so it reads bigger than its tile. */
+  private drawProp(img: HTMLImageElement, x: number, y: number, ts: number, w: number, h: number, grow: number): void {
+    const width = ts * w * grow
+    const height = (width * img.naturalHeight) / img.naturalWidth
+    this.withShadow(ts, () => this.ctx.drawImage(img, x + (ts * w - width) / 2, y + (ts * h - height) / 2, width, height))
+  }
+
+  /** A soft contact shadow under a sprite, so objects separate from the floor. */
+  private withShadow(ts: number, draw: () => void): void {
+    const { ctx } = this
+    ctx.save()
+    ctx.shadowColor = 'rgba(8, 10, 22, 0.55)'
+    ctx.shadowBlur = ts * 0.35
+    ctx.shadowOffsetX = ts * 0.08
+    ctx.shadowOffsetY = ts * 0.14
+    draw()
+    ctx.restore()
+  }
+
   private drawStove(stove: Stove | undefined, x: number, y: number, ts: number, nowMs: number): void {
     const { ctx } = this
     const img = this.sprites.get('stove')
-    if (img) ctx.drawImage(img, x - ts * 0.1, y - ts * 0.1, ts * 1.2, ts * 1.2)
+    // Drawn half again as big as its tile: a stove is a presence, not a floor tile.
+    if (img) this.drawProp(img, x, y, ts, 1, 1, 1.5)
     else {
       ctx.fillStyle = '#474b58'
       ctx.fillRect(x + 1, y + 1, ts - 2, ts - 2)
     }
     if (stove?.lit) {
-      const flick = 0.6 + 0.4 * Math.abs(Math.sin(nowMs / 130))
+      // A lit stove glows on its top plate (the big ring of the sprite).
+      const flick = 0.55 + 0.3 * Math.abs(Math.sin(nowMs / 130))
       ctx.fillStyle = `rgba(255, 176, 58, ${flick})`
-      ctx.fillRect(x + ts * 0.3, y + ts * 0.45, ts * 0.4, ts * 0.3)
+      ctx.beginPath()
+      ctx.arc(x + ts * 0.5, y + ts * 0.58, ts * 0.36, 0, Math.PI * 2)
+      ctx.fill()
     }
+  }
+
+  /** A two-tile window piece (frame, glass or planks or hole) lying along its wall, snowy sill outward. */
+  private drawWindow(section: Section, sx: (c: number) => number, sy: (r: number) => number, ts: number): void {
+    const img = this.sprites.get(windowSprite(section))
+    if (!img || section.tiles.length === 0) return
+    const first = section.tiles[0]!
+    const horizontal = section.orientation === 'h'
+    const length = section.tiles.length * ts
+    const height = (length * img.naturalHeight) / img.naturalWidth
+    const { ctx } = this
+    ctx.save()
+    ctx.translate(sx(first.c) + (horizontal ? length : ts) / 2, sy(first.r) + (horizontal ? ts : length) / 2)
+    ctx.rotate(horizontal ? (section.inside && section.inside.r < first.r ? Math.PI : 0) : section.inside && section.inside.c > first.c ? -Math.PI / 2 : Math.PI / 2)
+    // The sill sticks out above the wall band: keep the band on the tile, the sill outside.
+    ctx.drawImage(img, -length / 2, ts / 2 - height, length, height)
+    ctx.restore()
+  }
+
+  private drawWall(section: Section, sx: (c: number) => number, sy: (r: number) => number, ts: number): void {
+    const img = this.sprites.get(WALL_SPRITE[section.state])
+    if (!img || section.tiles.length === 0) return
+    const first = section.tiles[0]!
+    const horizontal = section.orientation === 'h'
+    const length = section.tiles.length * ts
+    const { ctx } = this
+    ctx.save()
+    ctx.translate(sx(first.c) + (horizontal ? length : ts) / 2,
+      sy(first.r) + (horizontal ? ts : length) / 2)
+    // The source's snowy edge is at the top; keep it on the exterior side.
+    ctx.rotate(horizontal
+      ? (section.inside && section.inside.r < first.r ? Math.PI : 0)
+      : (section.inside && section.inside.c > first.c ? -Math.PI / 2 : Math.PI / 2))
+    // The four files are pre-cropped to the same strip (512x129), so the wall
+    // does not shift when its state changes.
+    ctx.drawImage(img, -length / 2, -ts / 2, length, ts)
+    ctx.restore()
   }
 
   private drawFence(section: Section, sx: (c: number) => number, sy: (r: number) => number, ts: number): void {

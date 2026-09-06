@@ -3,6 +3,10 @@
  * tile (64 px per tile); the renderer scales them to the camera's tile size.
  */
 export const SPRITE_NAMES = [
+  'wall_intact',
+  'wall_damaged',
+  'wall_broken',
+  'wall_reinforced',
   'fence_intact',
   'fence_damaged',
   'fence_reinforced',
@@ -14,6 +18,19 @@ export const SPRITE_NAMES = [
   'spruce',
   'spruce_large',
   'snow',
+  'snow_night',
+  'floor_hall',
+  'floor_office',
+  'floor_store',
+  'crate',
+  'sawhorse',
+  'woodpile',
+  'door',
+  'bed',
+  'window_intact',
+  'window_boarded',
+  'window_broken',
+  'partition',
 ] as const
 
 export type SpriteName = (typeof SPRITE_NAMES)[number]

@@ -8,7 +8,7 @@
 import { findPath, StructureType, type Cell } from '../world'
 import { emit } from './events'
 import type { Person } from './person'
-import { completeOp, isOpen, opCost, type SectionOp } from './sections'
+import { completeOp, isOpen, opCost, type Section, type SectionOp } from './sections'
 import type { GameState } from './state'
 import { daylightLeft, hourOf, isDaylight, STEP_MIN } from './time'
 import balance from '../data/balance.json'
@@ -128,6 +128,17 @@ export function assignSaw(state: GameState, person: Person): AssignResult {
   return 'ok'
 }
 
+/** Where to stand to work on a section: on the compound side (inside the fence / in the yard). */
+function sectionStandTile(state: GameState, section: Section): Cell | null {
+  const inside = { c: (state.grid.w / 2) | 0, r: (state.grid.h / 2) | 0 }
+  let spot: Cell | null = null
+  for (const t of section.tiles) {
+    const s = nearestStandTile(state, t, inside)
+    if (s && (spot === null || Math.abs(s.c - inside.c) + Math.abs(s.r - inside.r) < Math.abs(spot.c - inside.c) + Math.abs(spot.r - inside.r))) spot = s
+  }
+  return spot
+}
+
 /**
  * Start (or resume) an operation on a section. Boards are paid when the
  * operation starts and stay on the section if the work is interrupted.
@@ -136,23 +147,17 @@ export function assignSection(state: GameState, person: Person, sectionId: numbe
   if (person.budgetMin <= 0) return 'tired'
   const section = state.section(sectionId)
   if (!section) return 'nothingToDo'
+  if (section.op !== null && section.op !== op) return 'nothingToDo' // finish what was started first
+  const cost = opCost(op)
+  if (section.op === null && state.res.boards < cost.boards) return 'noBoards'
+  // Every check before any payment: an unreachable section must not eat the boards.
+  const spot = sectionStandTile(state, section)
+  if (!spot || !walkTo(state, person, spot)) return 'noPath'
   if (section.op === null) {
-    const cost = opCost(op)
-    if (state.res.boards < cost.boards) return 'noBoards'
     state.res.boards -= cost.boards
     section.op = op
     section.progress = 0
-  } else if (section.op !== op) {
-    return 'nothingToDo' // finish what was started first
   }
-  // Stand on the compound side of the section (inside the fence / in the yard).
-  const inside = { c: (state.grid.w / 2) | 0, r: (state.grid.h / 2) | 0 }
-  let spot: Cell | null = null
-  for (const t of section.tiles) {
-    const s = nearestStandTile(state, t, inside)
-    if (s && (spot === null || Math.abs(s.c - inside.c) + Math.abs(s.r - inside.r) < Math.abs(spot.c - inside.c) + Math.abs(spot.r - inside.r))) spot = s
-  }
-  if (!spot || !walkTo(state, person, spot)) return 'noPath'
   person.job = { kind: 'section', sectionId, spot }
   return 'ok'
 }
@@ -210,7 +215,8 @@ export function tickPerson(state: GameState, person: Person): void {
   if (person.isMoving) {
     moveAlongPath(person)
     person.sleeping = false
-    if (person.job?.kind !== 'home') person.budgetMin -= STEP_MIN // walking is work time too
+    // Walking around the base is free of work hours: it only spends the minutes
+    // of the day. Distance is a resource on expeditions, not in the yard.
     return
   }
 
@@ -287,4 +293,72 @@ export function tickPerson(state: GameState, person: Person): void {
       return
     }
   }
+}
+
+// ---- planning: what would this person achieve, before committing --------------------
+
+/** A job the player is considering; the sheet shows an estimate per person, then confirms. */
+export type Plan = { kind: 'chop' } | { kind: 'saw' } | { kind: 'section'; sectionId: number; op: SectionOp }
+
+export interface JobEstimate {
+  /** 'ok', or why it could not start (the same reasons assigning would give). */
+  result: AssignResult
+  /** Minutes of walking before the work starts. */
+  walkMin: number
+  /** Minutes of work until the job ends: done, out of light, out of hours or out of input. */
+  workMin: number
+  /** Expected yield. */
+  wood: number
+  boards: number
+  /** Boards to pay now (section ops; 0 when the work is already paid for). */
+  boardsCost: number
+  /** False when today's hours will not see the work through (it continues tomorrow). */
+  enoughToday: boolean
+}
+
+function walkMinutes(state: GameState, person: Person, target: Cell): number | null {
+  const path = findPath(state.grid, Math.round(person.pos.c), Math.round(person.pos.r), target.c, target.r)
+  if (path === null) return null
+  return Math.ceil(path.length / WALK_PER_STEP) * STEP_MIN
+}
+
+/** Mirror of the assign functions and tickPerson, without touching anything. */
+export function estimateJob(state: GameState, person: Person, plan: Plan): JobEstimate {
+  const none: JobEstimate = { result: 'ok', walkMin: 0, workMin: 0, wood: 0, boards: 0, boardsCost: 0, enoughToday: true }
+  const fail = (result: AssignResult): JobEstimate => ({ ...none, result })
+  if (person.health <= 0 || person.budgetMin <= 0) return fail('tired')
+  const rate = person.work * (person.wounded ? W.workFactor : 1) // work minutes per real minute
+
+  if (plan.kind === 'chop') {
+    if (!isDaylight(state.totalMinutes)) return fail('dark')
+    const found = findChopSpot(state, state.gateOutside, { avoid: chopSpotsTaken(state, person) })
+    if (!found) return fail('nothingToDo')
+    const walkMin = walkMinutes(state, person, found.spot)
+    if (walkMin === null) return fail('noPath')
+    // Chopping stops when the light is nearly gone or the day's hours are spent.
+    const workMin = Math.max(0, Math.min(person.budgetMin, daylightLeft(state.totalMinutes) - walkMin - STEP_MIN * 2))
+    return { ...none, walkMin, workMin, wood: (workMin / 60) * P.chopWoodPerHour * rate }
+  }
+
+  if (plan.kind === 'saw') {
+    if (state.res.wood < P.woodPerBoard) return fail('noWood')
+    const walkMin = walkMinutes(state, person, state.sawhorse)
+    if (walkMin === null) return fail('noPath')
+    const woodPerMin = ((P.sawBoardsPerHour * P.woodPerBoard) / 60) * rate
+    const workMin = Math.max(0, Math.min(person.budgetMin, state.res.wood / woodPerMin))
+    return { ...none, walkMin, workMin, boards: (workMin * woodPerMin) / P.woodPerBoard }
+  }
+
+  const section = state.section(plan.sectionId)
+  if (!section) return fail('nothingToDo')
+  if (section.op !== null && section.op !== plan.op) return fail('nothingToDo')
+  const cost = opCost(plan.op)
+  const boardsCost = section.op === null ? cost.boards : 0
+  if (state.res.boards < boardsCost) return fail('noBoards')
+  const spot = sectionStandTile(state, section)
+  const walkMin = spot ? walkMinutes(state, person, spot) : null
+  if (walkMin === null) return fail('noPath')
+  const remaining = section.op === plan.op ? Math.max(0, cost.minutes - section.progress) : cost.minutes
+  const workMin = remaining / rate
+  return { ...none, walkMin, workMin, boardsCost, enoughToday: workMin <= person.budgetMin }
 }

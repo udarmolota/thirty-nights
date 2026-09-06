@@ -17,7 +17,6 @@ import { Renderer, type Selection } from './render/renderer'
 import { Sprites } from './render/sprites'
 import { InputController } from './ui/input'
 import { Hud, type SheetTarget } from './ui/hud'
-import { bedroomTemp } from './sim/heat'
 import { foodDays } from './sim/economy'
 import type { SectionOp } from './sim/sections'
 
@@ -182,8 +181,7 @@ function main(): void {
           if (log.wounded.length > 0) lines.push(t('morning.wounded', { names: log.wounded.map((id) => state.person(id)?.name ?? id).join(', ') }))
         }
         lines.push(state.hungryToday ? t('morning.hungry') : t('morning.food', { food: Math.floor(state.res.food), days: foodDays(state) }))
-        const temp = bedroomTemp(state, temps)
-        lines.push(t('morning.temp', { t: `${temp > 0 ? '+' : ''}${Math.round(temp)}` }))
+        lines.push(t('morning.temps', { list: hud.roomsLine(state, temps) }))
         // Every day starts paused: read the report, look around, then press play.
         openModal(t('morning.title', { day: ev.day }), lines, t('morning.ok'), () => pause())
         break
@@ -212,6 +210,7 @@ function main(): void {
         break
       case 'wounded':
         hud.toast(t('toast.wounded', { name: state.person(ev.personId)?.name ?? ev.personId }), 'bad')
+        pause()
         break
       case 'recovered':
         hud.toast(t('toast.recovered', { name: state.person(ev.personId)?.name ?? ev.personId }), 'good')

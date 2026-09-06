@@ -55,6 +55,46 @@ describe('the siege', () => {
     expect(state.people.every((p) => p.health > 50)).toBe(true)
   })
 
+  it('a hole punched on the last step of the night still lets them in that night', () => {
+    const state = siegeState(3)
+    // 03:40 of the assault night: one more step of attack, then the window closes.
+    state.totalMinutes += 3 * 60 + 50
+    state.lastMorningDay = state.day
+    simStep(state) // 03:50 - announces the night, first hit
+    expect(state.night.phase).toBe('fence')
+    // Make the target a hair from breaking, then the last step lands.
+    const target = state.sections.find((s) => s.id === state.night.targetId)!
+    target.hp = 0.1
+    target.buffer = 0
+    state.totalMinutes -= 10 // replay the last step at 03:50 with the weakened target
+    simStep(state)
+    expect(state.night.phase).toBe('yard')
+    expect(state.night.log.breached).toBe(true)
+    expect(state.events.some((e) => e.type === 'fenceHole')).toBe(true)
+    expect(state.events.some((e) => e.type === 'yardBreach')).toBe(true)
+    // The window closed: no further harm, and the log stays for the morning report.
+    simStep(state)
+    expect(state.night.phase).toBe('none')
+    expect(state.night.log.breached).toBe(true)
+  })
+
+  it('the shout comes first: the yard hurts only from the step after the breach', () => {
+    const state = siegeState(3)
+    // Open one fence section and put Ivan in the yard, awake.
+    const fence = state.sections.find((s) => s.kind === 'fence')!
+    fence.hp = 0
+    fence.state = 'hole'
+    const ivan = state.people[0]!
+    ivan.pos = { c: state.yardAnchor.c, r: state.yardAnchor.r }
+    ivan.job = { kind: 'saw', spot: state.sawhorse }
+    state.totalMinutes += 10 // 00:00
+    simStep(state)
+    expect(state.night.phase).toBe('yard')
+    expect(ivan.wounded).toBe(false)
+    simStep(state)
+    expect(ivan.wounded).toBe(true)
+  })
+
   it('reinforcement buys a night', () => {
     const state = siegeState(3)
     for (const s of state.sections) {

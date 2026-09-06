@@ -7,7 +7,20 @@ import { t } from '../core/i18n'
 import type { GameState } from '../sim/state'
 import type { Person } from '../sim/person'
 import { availableOps, maxHp, opCost, type SectionOp } from '../sim/sections'
+import { estimateJob, type JobEstimate, type Plan } from '../sim/jobs'
+import { STEP_MIN } from '../sim/time'
 import { bedroomTemp, stoveRoom, type RoomTemps } from '../sim/heat'
+
+/** The three heated rooms, by the index of their stove; the office (beds) first. */
+const ROOMS: Array<[stove: number, key: string]> = [
+  [1, 'room.office'],
+  [0, 'room.hall'],
+  [2, 'room.store'],
+]
+
+function fmtTemp(temp: number): string {
+  return `${temp > 0 ? '+' : ''}${Math.round(temp)}°`
+}
 import { foodDays } from '../sim/economy'
 import { daylightHours, daylightLeft, dayOf, hourOf, isDaylight, NIGHT_DAYS, nightOf, PREP_DAYS } from '../sim/time'
 
@@ -50,6 +63,10 @@ export class Hud {
   private speedButtons: HTMLButtonElement[] = []
   /** Which person the sheet's actions apply to (chips). */
   who: string | null = null
+  /** The job being considered: chosen action, not yet confirmed. */
+  private plan: Plan | null = null
+  /** The sheet target the plan belongs to; a different target drops the plan. */
+  private planTarget = ''
   private lastSheetKey = ''
   private modalShownAt = 0
 
@@ -68,6 +85,17 @@ export class Hud {
       this.speeds.appendChild(b)
       if (speed !== 'morning') this.speedButtons.push(b)
     }
+  }
+
+  /** "Office -2°, Workshop -22°, Storeroom -22°" for the morning report. */
+  roomsLine(state: GameState, temps: RoomTemps): string {
+    return ROOMS.map(([stove, key]) => `${t(key)} ${fmtTemp(temps.temps.get(stoveRoom(state, stove)) ?? -22)}`).join(', ')
+  }
+
+  /** Name of a room by its region id, if it is one of the three heated rooms. */
+  private roomLabel(state: GameState, roomId: number): string | null {
+    for (const [stove, key] of ROOMS) if (stoveRoom(state, stove) === roomId) return t(key)
+    return null
   }
 
   setSpeedActive(speed: number, toMorning: boolean): void {
@@ -160,7 +188,12 @@ export class Hud {
 
   /** Rebuild the side sheet for the current target (cheap key check first). */
   updateSheet(state: GameState, temps: RoomTemps, target: SheetTarget, note: string): void {
-    const key = JSON.stringify([target, note, this.who, this.sheetSignature(state, target)])
+    const targetKey = JSON.stringify(target)
+    if (this.plan && targetKey !== this.planTarget) this.plan = null
+    // While a plan is open its estimate moves with the clock and the stocks.
+    const planKey = this.plan ? `${Math.floor(state.totalMinutes / STEP_MIN)}:${Math.floor(state.res.wood)}:${Math.floor(state.res.boards)}` : ''
+    const tempsKey = [...temps.temps.values()].map((v) => Math.round(v)).join()
+    const key = JSON.stringify([target, note, this.who, this.plan, planKey, tempsKey, this.sheetSignature(state, target)])
     if (key === this.lastSheetKey) return
     this.lastSheetKey = key
     this.sheet.replaceChildren()
@@ -171,7 +204,7 @@ export class Hud {
       return
     }
     this.sheet.classList.remove('empty')
-    if (target.kind === 'person') this.personSheet(state, target.id)
+    if (target.kind === 'person') this.personSheet(state, temps, target.id)
     else if (target.kind === 'section') this.sectionSheet(state, target.id)
     else if (target.kind === 'stove') this.stoveSheet(state, temps, target.id)
     else {
@@ -221,8 +254,11 @@ export class Hud {
     row.className = 'who'
     row.append(this.line(t('who'), 'label'))
     const free = state.people.filter((p) => p.health > 0)
-    if (this.who === null || !free.some((p) => p.id === this.who && !p.wounded && p.budgetMin > 0)) {
-      this.who = free.find((p) => !p.wounded && p.budgetMin > 0)?.id ?? free[0]?.id ?? null
+    // A wounded worker is a valid pick (half pace); only the dead and the
+    // out-of-hours are off the list. Auto-pick prefers the fit, the player's
+    // own tap always sticks.
+    if (this.who === null || !free.some((p) => p.id === this.who && p.budgetMin > 0)) {
+      this.who = free.find((p) => !p.wounded && p.budgetMin > 0)?.id ?? free.find((p) => p.budgetMin > 0)?.id ?? free[0]?.id ?? null
     }
     for (const p of free) {
       const chip = document.createElement('button')
@@ -238,7 +274,7 @@ export class Hud {
     return row
   }
 
-  private personSheet(state: GameState, id: string): void {
+  private personSheet(state: GameState, temps: RoomTemps, id: string): void {
     const p = state.person(id)
     if (!p) return
     this.sheet.append(
@@ -246,13 +282,20 @@ export class Hud {
       this.line(`${this.statusOf(p)} · ${t('person.health', { hp: Math.round(p.health) })}`, 'sub'),
       this.line(`${t('person.work', { work: p.work })} · ${t('person.speed', { speed: p.speed })} · ${t('status.budget', { h: Math.max(0, Math.ceil(p.budgetMin / 60)) })}`, 'sub'),
     )
+    // Where they sleep and how cold it is there: the number the cold rule uses.
+    const bedRoom = state.roomAt(p.home.c, p.home.r)
+    const bedTemp = temps.temps.get(bedRoom) ?? -22
+    this.sheet.append(this.line(t('person.sleeps', { room: this.roomLabel(state, bedRoom) ?? t('room.outside'), t: fmtTemp(bedTemp) }), bedTemp < 0 ? 'sub bad' : 'sub'))
     const cant = p.health <= 0
     if (p.wounded) this.sheet.append(this.line(t('person.wounded', { days: p.woundDays }), 'sub'))
+    const target = JSON.stringify({ kind: 'person', id })
+    const kind = this.plan && this.plan.kind !== 'section' ? this.plan.kind : null
     this.sheet.append(
-      this.button(t('action.chop'), '', () => this.cb.assignJob(p.id, 'chop'), true, cant),
-      this.button(t('action.saw'), '', () => this.cb.assignJob(p.id, 'saw'), false, cant),
+      this.button(t('action.chop'), '', () => this.openPlan(target, { kind: 'chop' }, p.id), kind === 'chop', cant),
+      this.button(t('action.saw'), '', () => this.openPlan(target, { kind: 'saw' }, p.id), kind === 'saw', cant),
       this.button(t('action.cancel'), '', () => this.cb.assignJob(p.id, 'cancel'), false, p.job === null),
     )
+    if (kind) this.sheet.append(this.planBlock(state))
     if (p.wounded) {
       this.sheet.append(
         this.button(t('action.treat'), t('action.treatSub', { meds: Math.floor(state.res.meds) }), () => this.cb.treatPerson(p.id), false, cant || state.res.meds < 1),
@@ -275,14 +318,69 @@ export class Hud {
       const pct = Math.min(99, Math.floor((s.progress / opCost(s.op).minutes) * 100))
       this.sheet.append(this.line(t('section.progress', { op: t(`action.${s.op}`), pct }), 'sub progress'))
     }
-    this.sheet.append(this.whoRow(state))
+    const target = JSON.stringify({ kind: 'section', id })
+    const chosen = this.plan && this.plan.kind === 'section' ? this.plan.op : null
     const ops = s.op ? [s.op] : availableOps(s)
-    ops.forEach((op, i) => {
+    ops.forEach((op) => {
       const cost = opCost(op)
       const sub = s.op === op ? t('cost.free') : t('cost', { boards: cost.boards, hours: cost.minutes / 60 })
-      const disabled = this.who === null || (s.op !== op && state.res.boards < cost.boards)
-      this.sheet.append(this.button(t(`action.${op}`), sub, () => this.who && this.cb.assignSection(this.who, s.id, op), i === 0, disabled))
+      const disabled = s.op !== op && state.res.boards < cost.boards
+      this.sheet.append(this.button(t(`action.${op}`), sub, () => this.openPlan(target, { kind: 'section', sectionId: s.id, op }, null), chosen === op, disabled))
     })
+    if (chosen) this.sheet.append(this.planBlock(state))
+  }
+
+  /** An action was tapped: show who could do it and what it would yield, then wait for 'Do it'. */
+  private openPlan(target: string, plan: Plan, who: string | null): void {
+    this.plan = plan
+    this.planTarget = target
+    if (who) this.who = who
+    this.lastSheetKey = ''
+  }
+
+  private planBlock(state: GameState): HTMLDivElement {
+    const box = document.createElement('div')
+    box.className = 'plan'
+    box.append(this.whoRow(state))
+    const plan = this.plan!
+    const p = this.who ? state.person(this.who) : undefined
+    const est = p ? estimateJob(state, p, plan) : null
+    if (est) box.append(this.line(this.estimateText(plan, est), est.result === 'ok' ? 'sub estimate' : 'sub estimate bad'))
+    const run = (): void => {
+      if (!this.who) return
+      if (plan.kind === 'section') this.cb.assignSection(this.who, plan.sectionId, plan.op)
+      else this.cb.assignJob(this.who, plan.kind)
+      this.plan = null
+      this.lastSheetKey = ''
+    }
+    box.append(
+      this.button(t('plan.do'), '', run, true, !est || est.result !== 'ok'),
+      this.button(t('plan.cancel'), '', () => {
+        this.plan = null
+        this.lastSheetKey = ''
+      }),
+    )
+    return box
+  }
+
+  private duration(min: number): string {
+    const h = Math.floor(min / 60)
+    const m = Math.round(min - h * 60)
+    if (h > 0 && m > 0) return `${t('dur.h', { h })} ${t('dur.m', { m })}`
+    return h > 0 ? t('dur.h', { h }) : t('dur.m', { m })
+  }
+
+  private estimateText(plan: Plan, est: JobEstimate): string {
+    if (est.result !== 'ok') return t(`result.${est.result}`)
+    const parts = [t('plan.walk', { m: Math.round(est.walkMin) })]
+    if (plan.kind === 'chop') parts.push(t('plan.chop', { t: this.duration(est.workMin), n: Math.round(est.wood) }))
+    else if (plan.kind === 'saw') parts.push(t('plan.saw', { t: this.duration(est.workMin), n: Math.floor(est.boards) }))
+    else {
+      parts.push(t('plan.section', { t: this.duration(est.workMin) }))
+      parts.push(est.boardsCost > 0 ? t('plan.boards', { n: est.boardsCost }) : t('plan.paid'))
+      if (!est.enoughToday) parts.push(t('plan.notToday'))
+    }
+    return parts.join(' · ')
   }
 
   private stoveSheet(state: GameState, temps: RoomTemps, index: number): void {

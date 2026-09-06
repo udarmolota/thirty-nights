@@ -70,6 +70,16 @@ describe('the base', () => {
     for (const s of state.sections) if (s.kind !== 'fence') expect(state.roomBehind(s)).toBeGreaterThanOrEqual(0)
   })
 
+  it('a door leaks by actual temperatures: a freezing hall with a lit stove is still cold', () => {
+    const state = fresh()
+    const office = bedroomTemp(state, computeTemps(state))
+    state.stoves[0]!.lit = true // the hall stove: the hall stays at -22, so the office gains nothing
+    expect(bedroomTemp(state, computeTemps(state))).toBe(office)
+    state.stoves[0]!.lit = false
+    state.stoves[2]!.lit = true // the storeroom warms up above the office: that door stops leaking
+    expect(bedroomTemp(state, computeTemps(state))).toBe(office + 1)
+  })
+
   it('an unheated room is as cold as outside, never colder', () => {
     const state = fresh()
     for (const s of state.stoves) s.lit = false
