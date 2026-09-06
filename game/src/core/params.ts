@@ -1,24 +1,23 @@
 /**
- * Dev/start URL parameters, parsed pure so tests can cover the edge cases.
- * NB: Number(null) === 0 in JS — always check has() before Number().
+ * Start / playtest URL parameters, parsed pure so tests can cover the edge
+ * cases. Browser convenience only: the device build has no UI for them.
+ * NB: Number(null) === 0 in JS - always check has() before Number().
  */
 import type { Lang } from './i18n'
 
 export const DEFAULT_SEED = 20260715
+
+/** Stock names that can be overridden from the URL (?food=100&wood=300). */
+export const STOCK_KEYS = ['wood', 'boards', 'food', 'meds'] as const
+export type StockKey = (typeof STOCK_KEYS)[number]
 
 export interface StartParams {
   seed: number
   lang: Lang
   /** Clock override in game minutes, or null = default (day 1, 08:00). */
   startMinutes: number | null
-  /** Dev: pre-load the wrath ledger (?wrath=N), or null. */
-  wrath: number | null
-  /** Dev: force a raid ~10 game minutes in (?raid=1). */
-  forceRaid: boolean
-  /** Dev: skip the expedition-setup screen (?nosetup=1). */
-  skipSetup: boolean
-  /** Dev: load a save slot straight away (?load=auto|bookmark). */
-  load: 'auto' | 'bookmark' | null
+  /** Starting stock overrides; only the keys given in the URL. */
+  stocks: Partial<Record<StockKey, number>>
 }
 
 export function parseParams(search: string): StartParams {
@@ -29,7 +28,7 @@ export function parseParams(search: string): StartParams {
 
   const lang: Lang = params.get('lang') === 'en' ? 'en' : 'ru'
 
-  // Dev-only clock jump: ?day=15&hour=22 (browser convenience, no UI on device).
+  // Clock jump: ?day=14 (08:00 of that day) or ?day=16&hour=23.
   const day = params.has('day') ? Number(params.get('day')) : NaN
   const hour = params.has('hour') ? Number(params.get('hour')) : NaN
   const dayValid = Number.isFinite(day) && day >= 1
@@ -40,12 +39,12 @@ export function parseParams(search: string): StartParams {
   else if (dayValid) startMinutes = (day - 1) * 1440 + 8 * 60
   else if (hourValid) startMinutes = hour * 60
 
-  const rawWrath = params.has('wrath') ? Number(params.get('wrath')) : NaN
-  const wrath = Number.isFinite(rawWrath) && rawWrath >= 0 ? Math.min(100, rawWrath) : null
-  const forceRaid = params.get('raid') === '1'
-  const skipSetup = params.get('nosetup') === '1'
-  const rawLoad = params.get('load')
-  const load = rawLoad === 'auto' || rawLoad === 'bookmark' ? rawLoad : null
+  const stocks: Partial<Record<StockKey, number>> = {}
+  for (const key of STOCK_KEYS) {
+    if (!params.has(key)) continue
+    const n = Number(params.get(key))
+    if (Number.isFinite(n) && n >= 0) stocks[key] = n
+  }
 
-  return { seed, lang, startMinutes, wrath, forceRaid, skipSetup, load }
+  return { seed, lang, startMinutes, stocks }
 }

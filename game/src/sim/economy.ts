@@ -8,16 +8,33 @@ import type { GameState } from './state'
 import { hourOf, nightOf, STEP_MIN, TOTAL_DAYS } from './time'
 import balance from '../data/balance.json'
 
+/** Lit stoves eat firewood; when it is gone they eat boards one for one; when both are gone they go out. */
 export function burnStoves(state: GameState): void {
   const lit = state.stoves.filter((s) => s.lit).length
   if (lit === 0) return
-  const need = (lit * balance.heat.stoveFuelPerHour * STEP_MIN) / 60
-  if (state.res.fuel >= need) {
-    state.res.fuel -= need
+  const EPS = 1e-9
+  let need = (lit * balance.heat.stoveWoodPerHour * STEP_MIN) / 60
+  const fromWood = Math.min(need, state.res.wood)
+  state.res.wood -= fromWood
+  need -= fromWood
+  if (need <= EPS) {
+    state.burningBoards = false
     return
   }
-  // Out of fuel: every stove goes dark.
-  state.res.fuel = 0
+  const fromBoards = Math.min(need, state.res.boards)
+  state.res.boards -= fromBoards
+  need -= fromBoards
+  if (need <= EPS) {
+    if (!state.burningBoards) {
+      state.burningBoards = true
+      emit(state, { type: 'burningBoards' })
+    }
+    return
+  }
+  // Nothing left to burn: every stove goes dark.
+  state.res.wood = 0
+  state.res.boards = 0
+  state.burningBoards = false
   state.stoves.forEach((s, i) => {
     if (s.lit) {
       s.lit = false

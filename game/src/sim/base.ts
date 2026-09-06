@@ -170,7 +170,6 @@ export function buildBase(state: GameState): void {
   g.placeStructure(LAYOUT.woodpile.c, LAYOUT.woodpile.r, StructureType.Woodpile)
   for (const s of LAYOUT.storage) g.placeStructure(s.c, s.r, StructureType.Storage)
   state.sawhorse = { c: LAYOUT.sawhorse.c, r: LAYOUT.sawhorse.r + 1 }
-  state.woodpile = { c: LAYOUT.woodpile.c, r: LAYOUT.woodpile.r + 1 }
 
   // --- trodden paths (cosmetic) ------------------------------------------------
   for (let c = LAYOUT.hallDoor.c + 1; c < GATE.c; c++) g.setTerrain(c, GATE.r0 + 1, Terrain.Path)

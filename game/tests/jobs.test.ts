@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { buildBase, MAP_H, MAP_W } from '../src/sim/base'
-import { assignChop, assignSaw, assignSection, assignSplit, cancelJob } from '../src/sim/jobs'
+import { assignChop, assignSaw, assignSection, cancelJob } from '../src/sim/jobs'
 import { applyToGrid, completeOp, isOpen } from '../src/sim/sections'
+import type { Person } from '../src/sim/person'
 import { GameState } from '../src/sim/state'
+import type { Cell } from '../src/world'
 import { simStep } from '../src/sim/tick'
 import balance from '../src/data/balance.json'
 import { PREP_DAYS } from '../src/sim/time'
@@ -22,29 +24,51 @@ describe('jobs', () => {
   it('chopping brings logs and fells trees, only by daylight', () => {
     const state = fresh()
     const ivan = state.people[0]!
+    const trees = state.grid.trees.filter((v) => v > 0).length
     expect(assignChop(state, ivan)).toBe('ok')
     run(state, 24) // 4 hours
-    expect(state.res.logs).toBeGreaterThan(3)
+    expect(state.res.wood).toBeGreaterThan(balance.start.wood + 30)
+    expect(state.grid.trees.filter((v) => v > 0).length).toBe(trees) // the forest stays
     const dark = fresh()
     dark.totalMinutes = 20 * 60
     expect(assignChop(dark, dark.people[0]!)).toBe('dark')
   })
 
-  it('sawing turns logs into boards, splitting into fuel; no logs, no job', () => {
+  it('two choppers keep their distance and roam the forest edge', () => {
+    const state = fresh()
+    const [ivan, marta] = state.people as [Person, Person]
+    expect(assignChop(state, ivan)).toBe('ok')
+    expect(assignChop(state, marta)).toBe('ok')
+    const apart = (): number => {
+      const a = ivan.job as { spot: Cell }
+      const b = marta.job as { spot: Cell }
+      return Math.max(Math.abs(a.spot.c - b.spot.c), Math.abs(a.spot.r - b.spot.r))
+    }
+    expect(apart()).toBeGreaterThanOrEqual(2)
+    const first = { ...(ivan.job as { spot: Cell }).spot }
+    let moved = false
+    for (let i = 0; i < 30; i++) {
+      simStep(state)
+      if (ivan.job?.kind !== 'chop' || marta.job?.kind !== 'chop') break
+      expect(apart()).toBeGreaterThanOrEqual(2)
+      const now = (ivan.job as { spot: Cell }).spot
+      if (now.c !== first.c || now.r !== first.r) moved = true
+    }
+    expect(moved).toBe(true)
+  })
+
+  it('sawing turns firewood into boards; no firewood, no job', () => {
     const state = fresh()
     const ivan = state.people[0]!
-    expect(assignSaw(state, ivan)).toBe('noLogs')
-    state.res.logs = 4
+    state.res.wood = 0
+    expect(assignSaw(state, ivan)).toBe('noWood')
+    state.res.wood = 30
+    for (const s of state.stoves) s.lit = false // nothing burns during the test
     expect(assignSaw(state, ivan)).toBe('ok')
     run(state, 30)
-    expect(state.res.boards).toBeGreaterThan(balance.start.boards)
-    expect(state.res.logs).toBeLessThan(4)
-    const marta = state.people[1]!
-    state.res.logs = 3
-    const fuel = state.res.fuel
-    expect(assignSplit(state, marta)).toBe('ok')
-    run(state, 12)
-    expect(state.res.fuel).toBeGreaterThan(fuel - 2) // burning one stove meanwhile
+    const made = state.res.boards - balance.start.boards
+    expect(made).toBeGreaterThan(0)
+    expect(30 - state.res.wood).toBeCloseTo(made * balance.production.woodPerBoard, 5)
   })
 
   it('repairing a hole costs boards once and finishes even if interrupted', () => {
@@ -96,7 +120,7 @@ describe('jobs', () => {
     const state = fresh()
     state.totalMinutes = 8 * 60
     const ivan = state.people[0]!
-    state.res.logs = 999
+    state.res.wood = 999
     expect(assignSaw(state, ivan)).toBe('ok')
     run(state, 6 * 13) // 13 hours
     expect(ivan.budgetMin).toBeLessThanOrEqual(0)

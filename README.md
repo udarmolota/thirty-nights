@@ -36,12 +36,12 @@ repo but not in it; only the processed sprites are tracked.
 
 ## Playtest parameters (browser only)
 
-Append to the URL, e.g. `?day=14&food=100&fuel=300`:
+Append to the URL, e.g. `?day=14&food=100&wood=300`:
 
 | Parameter | Effect |
 |---|---|
 | `day=N` | Start on day N at 08:00 (`hour=H` for another hour). Day 14 is the eve of night 1, day 16 of the first assault. |
-| `food=N`, `fuel=N`, `boards=N`, `logs=N`, `meds=N` | Override the starting stocks. |
+| `wood=N`, `boards=N`, `food=N`, `meds=N` | Override the starting stocks (wood = firewood, one piece = one stove-hour). |
 | `seed=N` | Forest and RNG seed. |
 | `lang=en` | English UI (default Russian). |
 

@@ -18,10 +18,14 @@ export interface Stove {
   front: Cell
 }
 
+/**
+ * Firewood is the unit of heat: one piece keeps one stove going for an hour.
+ * It is chopped in the forest and either burnt or sawn into boards; boards
+ * burn too, one for one, when the firewood is gone - dear, but warm.
+ */
 export interface Resources {
-  logs: number
+  wood: number
   boards: number
-  fuel: number
   food: number
   meds: number
 }
@@ -60,7 +64,6 @@ export class GameState {
   stoves: Stove[] = []
   beds: Cell[] = []
   sawhorse: Cell = { c: 0, r: 0 }
-  woodpile: Cell = { c: 0, r: 0 }
   gateOutside: Cell = { c: 0, r: 0 }
   /** A tile that is always in the yard (just inside the gate): the yard's
    *  region id is looked up from it, because region ids are renumbered
@@ -80,8 +83,8 @@ export class GameState {
   lastMorningDay = 0
   hungryToday = false
   over: 'none' | 'won' | 'lost' = 'none'
-  /** Visual counter: trees felled so far (chopping clears one per few logs). */
-  logsSinceTree = 0
+  /** The stoves are eating boards because the firewood ran out (announced once). */
+  burningBoards = false
 
   private roomsCache: RoomData | null = null
   private roomsVersion = -1

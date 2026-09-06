@@ -198,7 +198,7 @@ export class Renderer {
       const size = ts * 1.6
       ctx.save()
       ctx.translate(x, y)
-      ctx.rotate(p.heading + Math.PI / 2)
+      ctx.rotate(p.heading - Math.PI / 2) // the sprites face down (+y) when unrotated
       if (img) ctx.drawImage(img, -size / 2, -size / 2, size, size)
       else {
         ctx.fillStyle = p.id === 'ivan' ? '#4f86b0' : '#3f7a5a'

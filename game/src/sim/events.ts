@@ -13,6 +13,7 @@ export type SimEvent =
   | { type: 'peopleAttacked'; sectionId: number }
   | { type: 'wounded'; personId: string }
   | { type: 'recovered'; personId: string }
+  | { type: 'burningBoards' }
   | { type: 'stoveOut'; stoveIndex: number }
   | { type: 'jobDone'; personId: string; job: string }
   | { type: 'dawn' }

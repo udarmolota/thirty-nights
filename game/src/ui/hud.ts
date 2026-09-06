@@ -15,7 +15,7 @@ export interface HudCallbacks {
   setSpeed: (speed: number) => void
   toMorning: () => void
   selectPerson: (id: string) => void
-  assignJob: (personId: string, job: 'chop' | 'saw' | 'split' | 'cancel') => void
+  assignJob: (personId: string, job: 'chop' | 'saw' | 'cancel') => void
   assignSection: (personId: string, sectionId: number, op: SectionOp) => void
   treatPerson: (personId: string) => void
   toggleStove: (index: number) => void
@@ -93,12 +93,15 @@ export class Hud {
     this.light.classList.toggle('dark', night > 0 || !isDaylight(state.totalMinutes))
 
     const temp = bedroomTemp(state, temps)
+    // Firewood shows how long the lit stoves can go on it; red under a day.
+    const lit = state.stoves.filter((s) => s.lit).length
+    const woodHours = lit > 0 ? Math.floor(state.res.wood / lit) : -1
+    const woodText = woodHours >= 0 ? `${fmt(state.res.wood)} (${t('hud.woodHours', { h: woodHours })})` : fmt(state.res.wood)
     const items: Array<[string, string, string]> = [
       ['temp', `${temp > 0 ? '+' : ''}${Math.round(temp)}°`, temp < 0 ? 'bad' : ''],
       ['food', `${fmt(state.res.food)} (${t('hud.foodDays', { n: foodDays(state) })})`, state.res.food < state.people.length * 3 ? 'bad' : ''],
-      ['logs', fmt(state.res.logs), ''],
+      ['wood', woodText, state.burningBoards || (lit > 0 && woodHours < 24) ? 'bad' : ''],
       ['boards', fmt(state.res.boards), state.res.boards < 4 ? 'bad' : ''],
-      ['fuel', fmt(state.res.fuel), state.res.fuel < 24 ? 'bad' : ''],
       ['meds', fmt(state.res.meds), ''],
     ]
     const key = items.map((i) => i[1] + i[2]).join('|')
@@ -182,7 +185,7 @@ export class Hud {
       const s = state.section(target.id)
       return s ? `${s.state}:${s.hp}:${s.buffer}:${s.op}:${Math.floor(s.progress)}:${s.boarded}:${Math.floor(state.res.boards)}` : ''
     }
-    if (target.kind === 'stove') return `${state.stoves[target.id]?.lit}:${Math.floor(state.res.fuel)}`
+    if (target.kind === 'stove') return `${state.stoves[target.id]?.lit}:${Math.floor(state.res.wood + state.res.boards)}`
     if (target.kind === 'person') {
       const p = state.person(target.id)
       return p ? `${Math.round(p.health)}:${this.statusOf(p)}:${p.budgetMin}:${p.woundDays}:${Math.floor(state.res.meds)}` : ''
@@ -248,7 +251,6 @@ export class Hud {
     this.sheet.append(
       this.button(t('action.chop'), '', () => this.cb.assignJob(p.id, 'chop'), true, cant),
       this.button(t('action.saw'), '', () => this.cb.assignJob(p.id, 'saw'), false, cant),
-      this.button(t('action.split'), '', () => this.cb.assignJob(p.id, 'split'), false, cant),
       this.button(t('action.cancel'), '', () => this.cb.assignJob(p.id, 'cancel'), false, p.job === null),
     )
     if (p.wounded) {
@@ -292,7 +294,7 @@ export class Hud {
     this.sheet.append(
       this.line(t('stove.title', { room: roomName }), 'title'),
       this.line(`${st.lit ? t('stove.lit') : t('stove.cold')} · ${t('room.temp', { t: `${temp > 0 ? '+' : ''}${Math.round(temp)}` })}`, 'sub'),
-      this.button(st.lit ? t('action.stoveOut') : t('action.stoveLight'), '', () => this.cb.toggleStove(index), !st.lit, !st.lit && state.res.fuel <= 0),
+      this.button(st.lit ? t('action.stoveOut') : t('action.stoveLight'), '', () => this.cb.toggleStove(index), !st.lit, !st.lit && state.res.wood + state.res.boards <= 0),
     )
   }
 

@@ -4,10 +4,10 @@
  */
 import { GameLoop } from './core/loop'
 import { setLang, t } from './core/i18n'
-import { parseParams } from './core/params'
+import { parseParams, STOCK_KEYS } from './core/params'
 import { buildBase, MAP_H, MAP_W } from './sim/base'
 import { computeTemps, type RoomTemps } from './sim/heat'
-import { assignChop, assignSaw, assignSection, assignSplit, cancelJob, treat, type AssignResult } from './sim/jobs'
+import { assignChop, assignSaw, assignSection, cancelJob, treat, type AssignResult } from './sim/jobs'
 import { GameState } from './sim/state'
 import { simStep } from './sim/tick'
 import { dayOf, daylightHours, hourOf, nightOf, NIGHT_DAYS, PREP_DAYS } from './sim/time'
@@ -33,6 +33,10 @@ function main(): void {
   if (params.startMinutes !== null) {
     state.totalMinutes = params.startMinutes
     state.lastMorningDay = state.day
+  }
+  for (const key of STOCK_KEYS) {
+    const n = params.stocks[key]
+    if (n !== undefined) state.res[key] = n
   }
 
   const canvas = document.getElementById('game') as HTMLCanvasElement
@@ -78,7 +82,7 @@ function main(): void {
         note = ''
         return
       }
-      const res = job === 'chop' ? assignChop(state, p) : job === 'saw' ? assignSaw(state, p) : assignSplit(state, p)
+      const res = job === 'chop' ? assignChop(state, p) : assignSaw(state, p)
       report(p.name, res)
     },
     assignSection: (personId, sectionId, op: SectionOp) => {
@@ -94,7 +98,7 @@ function main(): void {
     toggleStove: (index) => {
       const st = state.stoves[index]
       if (!st) return
-      if (!st.lit && state.res.fuel <= 0) return
+      if (!st.lit && state.res.wood + state.res.boards <= 0) return
       st.lit = !st.lit
       temps = computeTemps(state)
     },
@@ -180,7 +184,8 @@ function main(): void {
         lines.push(state.hungryToday ? t('morning.hungry') : t('morning.food', { food: Math.floor(state.res.food), days: foodDays(state) }))
         const temp = bedroomTemp(state, temps)
         lines.push(t('morning.temp', { t: `${temp > 0 ? '+' : ''}${Math.round(temp)}` }))
-        openModal(t('morning.title', { day: ev.day }), lines, t('morning.ok'), () => setSpeed(1))
+        // Every day starts paused: read the report, look around, then press play.
+        openModal(t('morning.title', { day: ev.day }), lines, t('morning.ok'), () => pause())
         break
       }
       case 'nightFalls':
@@ -210,6 +215,10 @@ function main(): void {
         break
       case 'recovered':
         hud.toast(t('toast.recovered', { name: state.person(ev.personId)?.name ?? ev.personId }), 'good')
+        break
+      case 'burningBoards':
+        hud.toast(t('toast.burningBoards'), 'bad')
+        pause()
         break
       case 'stoveOut':
         hud.toast(t('toast.stoveOut'), 'bad')

@@ -67,7 +67,8 @@ export function computeTemps(state: GameState): RoomTemps {
       }
       leak += def.leak
     }
-    temps.set(room.id, H.outside + heat - leak)
+    // Leaks eat the stove's heat; an unheated room is as cold as outside, not colder.
+    temps.set(room.id, H.outside + Math.max(0, heat - leak))
   }
   return { temps, stoves }
 }

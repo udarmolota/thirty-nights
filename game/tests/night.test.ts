@@ -16,7 +16,7 @@ function siegeState(night: number): GameState {
     }
   }
   state.res.food = 200
-  state.res.fuel = 500
+  state.res.wood = 500
   // 23:50 of the evening before the attack window of the given night.
   state.totalMinutes = (PREP_DAYS + night - 1) * 1440 - 10
   state.lastMorningDay = state.day

@@ -70,6 +70,15 @@ describe('the base', () => {
     for (const s of state.sections) if (s.kind !== 'fence') expect(state.roomBehind(s)).toBeGreaterThanOrEqual(0)
   })
 
+  it('an unheated room is as cold as outside, never colder', () => {
+    const state = fresh()
+    for (const s of state.stoves) s.lit = false
+    const temps = computeTemps(state)
+    for (const room of state.rooms().rooms) {
+      if (room.indoor) expect(temps.temps.get(room.id)).toBe(-22)
+    }
+  })
+
   it('the lit office stove keeps the bedroom far warmer than the cold hall', () => {
     const state = fresh()
     const temps = computeTemps(state)
@@ -78,10 +87,12 @@ describe('the base', () => {
     expect(bedroom).toBeLessThanOrEqual(2)
     const hallRoom = stoveRoom(state, 0)
     expect(temps.temps.get(hallRoom)!).toBeLessThan(bedroom - 10)
-    // Light the hall stove: it is big and full of windows, so it stays cold.
+    // Light the hall stove: the hall is big and full of windows, so one stove
+    // barely (or not at all) lifts it above the outside - that is the point:
+    // partition it or leave it cold.
     state.stoves[0]!.lit = true
     const warmer = computeTemps(state)
-    expect(warmer.temps.get(hallRoom)!).toBeGreaterThan(temps.temps.get(hallRoom)!)
-    expect(warmer.temps.get(hallRoom)!).toBeLessThan(0)
+    expect(warmer.temps.get(hallRoom)!).toBeGreaterThanOrEqual(temps.temps.get(hallRoom)!)
+    expect(warmer.temps.get(hallRoom)!).toBeLessThan(-10)
   })
 })

@@ -10,7 +10,7 @@ function fresh(): GameState {
   buildBase(state)
   state.totalMinutes = 11 * 60
   state.lastMorningDay = state.day
-  state.res.logs = 20
+  state.res.wood = 200
   return state
 }
 

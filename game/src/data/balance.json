@@ -9,9 +9,8 @@
     "attackToHour": 4
   },
   "start": {
-    "logs": 0,
+    "wood": 40,
     "boards": 12,
-    "fuel": 40,
     "food": 12,
     "meds": 2
   },
@@ -22,11 +21,9 @@
   "walkTilesPerMinute": 0.5,
   "food": { "perPersonPerDay": 1, "hungerHealthPerDay": 10 },
   "production": {
-    "chopLogsPerHour": 2.2,
-    "sawLogsPerHour": 1.0,
-    "boardsPerLog": 2,
-    "splitLogsPerHour": 1.5,
-    "fuelPerLog": 12
+    "chopWoodPerHour": 26,
+    "sawBoardsPerHour": 2,
+    "woodPerBoard": 6
   },
   "sections": {
     "hp": 10,
@@ -42,7 +39,7 @@
     "outside": -22,
     "stoveHeat": 24,
     "stoveArea": 100,
-    "stoveFuelPerHour": 1,
+    "stoveWoodPerHour": 1,
     "minTemp": 0,
     "coldHealthPerDegreeDay": 0.4
   },
