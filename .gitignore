@@ -1,0 +1,17 @@
+# Working materials that live next to the project but are not part of it:
+# raw generator output (Meshy, ChatGPT), references and screenshots. The
+# processed sprites the game uses are in game/public/art and ARE tracked.
+/*.png
+/*.jpg
+/*.jpeg
+/Pics/
+
+# Tooling
+node_modules/
+dist/
+*.log
+.DS_Store
+Thumbs.db
+
+# Rejected canvas mock-ups from the first art pass (kept locally as history)
+/design/art-directions/

@@ -1,0 +1,58 @@
+{
+  "calendar": {
+    "prepDays": 14,
+    "nightDays": 30,
+    "daylightDay1": 8,
+    "daylightLast": 1,
+    "workHoursPerDay": 12,
+    "attackFromHour": 0,
+    "attackToHour": 4
+  },
+  "start": {
+    "logs": 0,
+    "boards": 12,
+    "fuel": 40,
+    "food": 12,
+    "meds": 2
+  },
+  "people": [
+    { "id": "ivan", "name": "Иван", "sprite": "person_ivan", "work": 1.2, "speed": 1.0, "carry": 10 },
+    { "id": "marta", "name": "Марта", "sprite": "person_marta", "work": 0.9, "speed": 1.3, "carry": 7 }
+  ],
+  "walkTilesPerMinute": 0.5,
+  "food": { "perPersonPerDay": 1, "hungerHealthPerDay": 10 },
+  "production": {
+    "chopLogsPerHour": 2.2,
+    "sawLogsPerHour": 1.0,
+    "boardsPerLog": 2,
+    "splitLogsPerHour": 1.5,
+    "fuelPerLog": 12
+  },
+  "sections": {
+    "hp": 10,
+    "damagedBelow": 7,
+    "reinforceBuffer": 5,
+    "repair": { "boards": 4, "hours": 2 },
+    "reinforce": { "boards": 3, "hours": 1.5 },
+    "build": { "boards": 8, "hours": 3 },
+    "boardWindow": { "boards": 2, "hours": 1 },
+    "windowHp": 6
+  },
+  "heat": {
+    "outside": -22,
+    "stoveHeat": 24,
+    "stoveArea": 100,
+    "stoveFuelPerHour": 1,
+    "minTemp": 0,
+    "coldHealthPerDegreeDay": 0.4
+  },
+  "wounds": { "days": 3, "daysWithMeds": 1, "workFactor": 0.5 },
+  "night": {
+    "assaultEvery": 3,
+    "assaultBonus": 2,
+    "probeAttackers": 1,
+    "damagePerAttackerHour": 1,
+    "breachWound": 15,
+    "wolvesUntilNight": 5
+  }
+}
