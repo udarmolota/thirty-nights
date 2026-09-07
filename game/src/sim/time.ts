@@ -41,6 +41,15 @@ export function isDaylight(totalMinutes: number): boolean {
   return h >= 12 - d / 2 && h < 12 + d / 2
 }
 
+/** Minutes until today's daylight opens (0 once it has, or on a day without light). */
+export function minutesToDaylight(totalMinutes: number): number {
+  const d = daylightHours(dayOf(totalMinutes))
+  if (d <= 0) return 0
+  const start = (12 - d / 2) * 60
+  const now = totalMinutes % MIN_PER_DAY
+  return Math.max(0, start - now)
+}
+
 /** Minutes of daylight left today (0 when dark or after the window). */
 export function daylightLeft(totalMinutes: number): number {
   const d = daylightHours(dayOf(totalMinutes))

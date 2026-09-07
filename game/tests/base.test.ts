@@ -93,8 +93,9 @@ describe('the base', () => {
     const state = fresh()
     const temps = computeTemps(state)
     const bedroom = bedroomTemp(state, temps)
-    expect(bedroom).toBeGreaterThan(-6)
-    expect(bedroom).toBeLessThanOrEqual(2)
+    // ~50 tiles: the stove's x1.5 small-room bonus minus a window and two doors to the cold.
+    expect(bedroom).toBeGreaterThan(5)
+    expect(bedroom).toBeLessThanOrEqual(14)
     const hallRoom = stoveRoom(state, 0)
     expect(temps.temps.get(hallRoom)!).toBeLessThan(bedroom - 10)
     // Light the hall stove: the hall is big and full of windows, so one stove

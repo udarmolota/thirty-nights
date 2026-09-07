@@ -84,6 +84,12 @@ export function tickMorning(state: GameState): void {
   state.night.yardVictims.clear()
 }
 
+/** Everyone alive is out of work hours and idle: nothing more will happen today. */
+export function everyoneDone(state: GameState): boolean {
+  const alive = state.people.filter((p) => p.health > 0)
+  return alive.length > 0 && alive.every((p) => p.budgetMin <= 0 && !p.isMoving && (p.job === null || p.job.kind === 'home'))
+}
+
 export function checkDefeat(state: GameState): void {
   if (state.over !== 'none') return
   if (state.people.every((p) => p.health <= 0)) {

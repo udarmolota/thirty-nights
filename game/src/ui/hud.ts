@@ -9,6 +9,7 @@ import type { Person } from '../sim/person'
 import { availableOps, maxHp, opCost, type SectionOp } from '../sim/sections'
 import { estimateJob, type JobEstimate, type Plan } from '../sim/jobs'
 import { STEP_MIN } from '../sim/time'
+import balance from '../data/balance.json'
 import { bedroomTemp, stoveRoom, type RoomTemps } from '../sim/heat'
 
 /** The three heated rooms, by the index of their stove; the office (beds) first. */
@@ -22,7 +23,7 @@ function fmtTemp(temp: number): string {
   return `${temp > 0 ? '+' : ''}${Math.round(temp)}°`
 }
 import { foodDays } from '../sim/economy'
-import { daylightHours, daylightLeft, dayOf, hourOf, isDaylight, NIGHT_DAYS, nightOf, PREP_DAYS } from '../sim/time'
+import { daylightHours, daylightLeft, dayOf, hourOf, isDaylight, minutesToDaylight, NIGHT_DAYS, nightOf, PREP_DAYS } from '../sim/time'
 
 export interface HudCallbacks {
   setSpeed: (speed: number) => void
@@ -39,6 +40,7 @@ export type SheetTarget =
   | { kind: 'section'; id: number }
   | { kind: 'stove'; id: number }
   | { kind: 'tree' }
+  | { kind: 'sawhorse' }
   | { kind: 'none' }
 
 function el<T extends HTMLElement>(id: string): T {
@@ -47,6 +49,17 @@ function el<T extends HTMLElement>(id: string): T {
 
 function fmt(n: number): string {
   return String(Math.floor(n))
+}
+
+
+/** Line icons for the top bar, 16x16, drawn in the current colour. */
+const ICON = (body: string): string => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
+const ICONS: Record<string, string> = {
+  temp: ICON('<path d="M6 2.5a2 2 0 0 1 4 0v6.6a3.5 3.5 0 1 1-4 0z"/><path d="M8 6v5.5"/>'),
+  food: ICON('<path d="M2.5 8.5h11l-1.2 4.5H3.7z"/><path d="M4 8.5V7a4 4 0 0 1 8 0v1.5"/>'),
+  wood: ICON('<rect x="2" y="5" width="12" height="6" rx="3"/><circle cx="5" cy="8" r="1.4"/><path d="M8 6.5h4M8 9.5h4"/>'),
+  boards: ICON('<rect x="2" y="5.5" width="12" height="5"/><path d="M6 5.5v5M10 5.5v5"/>'),
+  meds: ICON('<rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/><path d="M8 5.5v5M5.5 8h5"/>'),
 }
 
 export class Hud {
@@ -69,8 +82,16 @@ export class Hud {
   private planTarget = ''
   private lastSheetKey = ''
   private modalShownAt = 0
+  private readonly popover = el<HTMLDivElement>('popover')
+  /** The last sim snapshot the top bar was drawn from, for the popover text. */
+  private lastState: GameState | null = null
+  private lastTemps: RoomTemps | null = null
 
   constructor(private readonly cb: HudCallbacks) {
+    // A tap anywhere outside the popover closes it.
+    document.addEventListener('pointerdown', (ev) => {
+      if (!this.popover.hidden && !this.popover.contains(ev.target as Node)) this.closePopover()
+    })
     const defs: Array<[string, number | 'morning']> = [
       ['speed.pause', 0],
       ['speed.x1', 1],
@@ -107,46 +128,100 @@ export class Hud {
   updateTop(state: GameState, temps: RoomTemps): void {
     const day = dayOf(state.totalMinutes)
     const night = nightOf(day)
-    this.phase.textContent =
-      night === 0
-        ? `${t('hud.day', { day })} · ${t('hud.untilNight', { n: PREP_DAYS - day + 1 })}`
-        : t('hud.night', { night, total: NIGHT_DAYS })
+    this.phase.textContent = night === 0 ? t('hud.phase', { day, left: PREP_DAYS - day + 1 }) : t('hud.nightPhase', { night, total: NIGHT_DAYS })
     const h = hourOf(state.totalMinutes)
     const hh = Math.floor(h)
     const mm = Math.round((h - hh) * 60)
     this.clock.textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+    // The light field is the "may I go out" sign: green while the forest is open,
+    // amber in the last hour, a countdown before dawn, muted in the dark.
+    const toDawn = minutesToDaylight(state.totalMinutes)
+    const left = daylightLeft(state.totalMinutes)
+    let lightState = 'dark'
     if (night > 0) this.light.textContent = t('hud.dark')
-    else if (isDaylight(state.totalMinutes)) this.light.textContent = t('hud.lightLeft', { h: (daylightLeft(state.totalMinutes) / 60).toFixed(1) })
-    else this.light.textContent = t('hud.light', { h: daylightHours(day) })
-    this.light.classList.toggle('dark', night > 0 || !isDaylight(state.totalMinutes))
+    else if (isDaylight(state.totalMinutes)) {
+      this.light.textContent = t('hud.lightLeft', { h: (left / 60).toFixed(1) })
+      lightState = left <= 60 ? 'soon' : 'good'
+    } else if (toDawn > 0) {
+      this.light.textContent = t('hud.lightIn', { t: this.duration(toDawn) })
+      lightState = 'wait'
+    } else this.light.textContent = t('hud.dark')
+    this.light.className = lightState
+    void daylightHours
 
+    // Icon + number; a tap opens a small popover with the detail under it.
     const temp = bedroomTemp(state, temps)
-    // Firewood shows how long the lit stoves can go on it; red under a day.
     const lit = state.stoves.filter((s) => s.lit).length
     const woodHours = lit > 0 ? Math.floor(state.res.wood / lit) : -1
-    const woodText = woodHours >= 0 ? `${fmt(state.res.wood)} (${t('hud.woodHours', { h: woodHours })})` : fmt(state.res.wood)
-    const items: Array<[string, string, string]> = [
-      ['temp', `${temp > 0 ? '+' : ''}${Math.round(temp)}°`, temp < 0 ? 'bad' : ''],
-      ['food', `${fmt(state.res.food)} (${t('hud.foodDays', { n: foodDays(state) })})`, state.res.food < state.people.length * 3 ? 'bad' : ''],
-      ['wood', woodText, state.burningBoards || (lit > 0 && woodHours < 24) ? 'bad' : ''],
+    const items: Array<[key: string, value: string, cls: string]> = [
+      ['temp', fmtTemp(temp), temp < 0 ? 'bad' : ''],
+      ['food', fmt(state.res.food), state.res.food < state.people.length * 3 ? 'bad' : ''],
+      ['wood', fmt(state.res.wood), state.burningBoards || (lit > 0 && woodHours < 24) ? 'bad' : ''],
       ['boards', fmt(state.res.boards), state.res.boards < 4 ? 'bad' : ''],
       ['meds', fmt(state.res.meds), ''],
     ]
+    this.lastState = state
+    this.lastTemps = temps
     const key = items.map((i) => i[1] + i[2]).join('|')
     if (this.res.dataset.key === key) return
     this.res.dataset.key = key
     this.res.replaceChildren(
       ...items.map(([k, v, cls]) => {
-        const d = document.createElement('div')
+        const d = document.createElement('button')
         d.className = `resitem ${cls}`
+        d.innerHTML = ICONS[k] ?? ''
         const val = document.createElement('b')
         val.textContent = v
-        const lab = document.createElement('span')
-        lab.textContent = t(`hud.${k}`)
-        d.append(val, lab)
+        d.appendChild(val)
+        d.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          this.togglePopover(d, k)
+        })
         return d
       }),
     )
+  }
+
+  /** What a stock means right now, one line per fact. */
+  private stockDetail(key: string): string[] {
+    const state = this.lastState
+    const temps = this.lastTemps
+    if (!state || !temps) return []
+    const alive = state.people.filter((p) => p.health > 0).length
+    const lit = state.stoves.filter((s) => s.lit).length
+    switch (key) {
+      case 'temp':
+        return this.roomsLine(state, temps).split(', ')
+      case 'food':
+        return [t('pop.food', { food: fmt(state.res.food), n: foodDays(state), people: alive })]
+      case 'wood':
+        return [lit > 0 ? t('pop.wood', { wood: fmt(state.res.wood), h: Math.floor(state.res.wood / lit), lit }) : t('pop.woodIdle', { wood: fmt(state.res.wood) })]
+      case 'boards':
+        return [t('pop.boards', { boards: fmt(state.res.boards), n: Math.floor(state.res.boards / balance.sections.repair.boards), cost: balance.sections.repair.boards })]
+      case 'meds':
+        return [t('pop.meds', { meds: fmt(state.res.meds), days: balance.wounds.daysWithMeds })]
+      default:
+        return []
+    }
+  }
+
+  private togglePopover(anchor: HTMLElement, key: string): void {
+    if (this.popover.dataset.key === key && !this.popover.hidden) {
+      this.closePopover()
+      return
+    }
+    this.popover.replaceChildren(...this.stockDetail(key).map((line) => this.line(line)))
+    this.popover.dataset.key = key
+    this.popover.hidden = false
+    const r = anchor.getBoundingClientRect()
+    const w = this.popover.offsetWidth
+    this.popover.style.left = `${Math.max(4, Math.min(window.innerWidth - w - 4, r.left + r.width / 2 - w / 2))}px`
+    this.popover.style.top = `${r.bottom + 4}px`
+  }
+
+  closePopover(): void {
+    this.popover.hidden = true
+    this.popover.dataset.key = ''
   }
 
   private statusOf(p: Person): string {
@@ -160,7 +235,7 @@ export class Hud {
   }
 
   updateRoster(state: GameState, selectedId: string | null): void {
-    const key = state.people.map((p) => `${p.id}:${Math.round(p.health)}:${this.statusOf(p)}:${p.id === selectedId}:${Math.ceil(p.budgetMin / 60)}`).join('|')
+    const key = state.people.map((p) => `${p.id}:${Math.round(p.health)}:${this.statusOf(p)}:${p.id === selectedId}:${Math.ceil(p.budgetMin / 60)}:${p.wounded}`).join('|')
     if (this.roster.dataset.key === key) return
     this.roster.dataset.key = key
     this.roster.replaceChildren(
@@ -174,12 +249,18 @@ export class Hud {
         name.textContent = p.name
         const status = document.createElement('span')
         status.textContent = `${this.statusOf(p)} · ${t('status.budget', { h: Math.max(0, Math.ceil(p.budgetMin / 60)) })}`
+        // Two bars: health (green) and work hours left today (white), same as over the head.
         const bar = document.createElement('div')
         bar.className = 'hp'
         const fill = document.createElement('div')
         fill.style.width = `${Math.max(0, p.health)}%`
         bar.appendChild(fill)
-        card.append(img, name, status, bar)
+        const hours = document.createElement('div')
+        hours.className = 'hp hours'
+        const hfill = document.createElement('div')
+        hfill.style.width = `${Math.max(0, Math.min(100, (p.budgetMin / (balance.calendar.workHoursPerDay * 60)) * 100))}%`
+        hours.appendChild(hfill)
+        card.append(img, name, status, bar, hours)
         card.addEventListener('click', () => this.cb.selectPerson(p.id))
         return card
       }),
@@ -207,9 +288,8 @@ export class Hud {
     if (target.kind === 'person') this.personSheet(state, temps, target.id)
     else if (target.kind === 'section') this.sectionSheet(state, target.id)
     else if (target.kind === 'stove') this.stoveSheet(state, temps, target.id)
-    else {
-      this.sheet.append(this.line(t('tree.title'), 'title'), this.line(t('tree.hint'), 'hint'))
-    }
+    else if (target.kind === 'tree') this.objectSheet(state, 'tree', 'chop')
+    else if (target.kind === 'sawhorse') this.objectSheet(state, 'sawhorse', 'saw')
     if (note) this.sheet.append(this.line(note, 'note'))
   }
 
@@ -330,6 +410,14 @@ export class Hud {
     if (chosen) this.sheet.append(this.planBlock(state))
   }
 
+  /** A workplace was tapped (the forest, the sawhorse): its one job, with the plan. */
+  private objectSheet(state: GameState, kind: 'tree' | 'sawhorse', job: 'chop' | 'saw'): void {
+    this.sheet.append(this.line(t(`${kind}.title`), 'title'), this.line(t(`${kind}.hint`), 'hint'))
+    const open = this.plan !== null && this.plan.kind === job
+    this.sheet.append(this.button(t(job === 'chop' ? 'action.chop' : 'action.saw'), '', () => this.openPlan(JSON.stringify({ kind }), { kind: job }, null), open, state.people.every((p) => p.health <= 0)))
+    if (open) this.sheet.append(this.planBlock(state))
+  }
+
   /** An action was tapped: show who could do it and what it would yield, then wait for 'Do it'. */
   private openPlan(target: string, plan: Plan, who: string | null): void {
     this.plan = plan
@@ -420,6 +508,28 @@ export class Hud {
       onClose()
     })
     this.modalBox.appendChild(b)
+    this.modal.style.display = 'flex'
+    this.modalShownAt = performance.now()
+  }
+
+  /** A modal with several buttons (the start screen). */
+  openChoice(title: string, lines: string[], buttons: Array<{ label: string; run: () => void; primary?: boolean }>): void {
+    this.modalBox.replaceChildren()
+    const h = document.createElement('h2')
+    h.textContent = title
+    this.modalBox.appendChild(h)
+    for (const l of lines) this.modalBox.appendChild(this.line(l, 'p'))
+    for (const { label, run, primary } of buttons) {
+      const b = document.createElement('button')
+      b.className = `action ${primary ? 'primary' : ''}`
+      b.textContent = label
+      b.addEventListener('click', () => {
+        if (performance.now() - this.modalShownAt < 180) return
+        this.modal.style.display = 'none'
+        run()
+      })
+      this.modalBox.appendChild(b)
+    }
     this.modal.style.display = 'flex'
     this.modalShownAt = performance.now()
   }

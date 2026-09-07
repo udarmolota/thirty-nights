@@ -36,7 +36,7 @@ repo but not in it; only the processed sprites are tracked.
 
 ## Playtest parameters (browser only)
 
-Append to the URL, e.g. `?day=14&food=100&wood=300`:
+Append to the URL, e.g. `?day=14&wood=300`:
 
 | Parameter | Effect |
 |---|---|

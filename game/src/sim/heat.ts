@@ -1,6 +1,6 @@
 /**
  * Heat by room. A stove gives +24 C and heats ~100 tiles at full strength;
- * a bigger room gets proportionally less. Windows, doors to the cold, holes
+ * a bigger room gets proportionally less, a smaller one up to 1.5x more. Windows, doors to the cold, holes
  * and boarded windows leak. Below 0 C the people sleeping there lose health.
  */
 import { structureDef, StructureType, type Room } from '../world'
@@ -42,7 +42,8 @@ export function computeTemps(state: GameState): RoomTemps {
 
   const heatOf = (room: Room): number => {
     const lit = stoves.get(room.id) ?? 0
-    return lit * H.stoveHeat * Math.min(1, H.stoveArea / Math.max(1, room.tiles))
+    // Full strength up to stoveArea tiles; a smaller room gets more, up to stoveBoost times.
+    return lit * H.stoveHeat * Math.min(H.stoveBoost, H.stoveArea / Math.max(1, room.tiles))
   }
   // A window or a hole is one opening however many tiles its section spans:
   // leaks are counted per section, not per tile.

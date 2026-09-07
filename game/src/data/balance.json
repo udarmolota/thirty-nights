@@ -11,7 +11,7 @@
   "start": {
     "wood": 40,
     "boards": 12,
-    "food": 12,
+    "food": 100,
     "meds": 2
   },
   "people": [
@@ -39,9 +39,10 @@
     "outside": -22,
     "stoveHeat": 24,
     "stoveArea": 100,
+    "stoveBoost": 1.5,
     "stoveWoodPerHour": 1,
     "minTemp": 0,
-    "coldHealthPerDegreeDay": 0.4
+    "coldHealthPerDegreeDay": 1.0
   },
   "wounds": { "days": 3, "daysWithMeds": 1, "workFactor": 0.5 },
   "night": {

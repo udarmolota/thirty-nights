@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildBase, MAP_H, MAP_W } from '../src/sim/base'
+import { everyoneDone } from '../src/sim/economy'
 import { GameState } from '../src/sim/state'
 import { simStep } from '../src/sim/tick'
 
@@ -10,6 +11,21 @@ function fresh(): GameState {
   state.lastMorningDay = state.day
   return state
 }
+
+describe('the end of the working day', () => {
+  it('is reached when everyone alive is out of hours and idle', () => {
+    const state = fresh()
+    expect(everyoneDone(state)).toBe(false)
+    for (const p of state.people) p.budgetMin = 0
+    expect(everyoneDone(state)).toBe(true)
+    state.people[0]!.job = { kind: 'saw', spot: state.sawhorse } // still at work: not done
+    expect(everyoneDone(state)).toBe(false)
+    state.people[0]!.job = { kind: 'home' }
+    expect(everyoneDone(state)).toBe(true)
+    state.people[0]!.health = 0 // the dead do not count, the living decide
+    expect(everyoneDone(state)).toBe(true)
+  })
+})
 
 describe('stoves and wood', () => {
   it('burn firewood first, then boards one for one, then go out', () => {

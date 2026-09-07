@@ -13,9 +13,13 @@ import type { Section } from '../sim/sections'
 import { darkness } from '../sim/time'
 import { stoveRoom } from '../sim/heat'
 import { GATE } from '../sim/base'
+import balance from '../data/balance.json'
+
+/** A full day's work budget in minutes, for the hours bar. */
+const WORK_MIN = balance.calendar.workHoursPerDay * 60
 
 export interface Selection {
-  kind: 'person' | 'section' | 'stove' | 'tree' | null
+  kind: 'person' | 'section' | 'stove' | 'tree' | 'sawhorse' | null
   id: number | string
 }
 
@@ -268,6 +272,19 @@ export class Renderer {
         ctx.fill()
       }
       ctx.restore()
+      // Over the head: health (green) and work hours left today (white).
+      if (ts >= 6) {
+        const bw = ts * 1.2
+        const bh = Math.max(2, ts * 0.11)
+        const bx = x - bw / 2
+        const by = y - size * 0.62
+        ctx.fillStyle = 'rgba(8, 10, 22, 0.6)'
+        ctx.fillRect(bx - 1, by - 1, bw + 2, bh * 2 + 3)
+        ctx.fillStyle = '#6fcf97'
+        ctx.fillRect(bx, by, (bw * Math.max(0, p.health)) / 100, bh)
+        ctx.fillStyle = '#e8eef7'
+        ctx.fillRect(bx, by + bh + 1, bw * Math.max(0, Math.min(1, p.budgetMin / WORK_MIN)), bh)
+      }
       if (p.wounded) {
         ctx.fillStyle = DANGER
         ctx.beginPath()
@@ -682,11 +699,12 @@ export class Renderer {
         ctx.arc(sx(p.pos.c) + ts / 2, sy(p.pos.r) + ts / 2, ts * 1.05, 0, Math.PI * 2)
         ctx.stroke()
       }
-    } else if (sel.kind === 'tree') {
+    } else if (sel.kind === 'tree' || sel.kind === 'sawhorse') {
       const idx = sel.id as number
       const c = idx % state.grid.w
       const r = (idx - c) / state.grid.w
-      ctx.strokeRect(sx(c) - 2, sy(r) - 2, ts + 4, ts + 4)
+      const w = sel.kind === 'sawhorse' ? 2 : 1
+      ctx.strokeRect(sx(c) - 2, sy(r) - 2, ts * w + 4, ts + 4)
     }
     ctx.setLineDash([])
   }
