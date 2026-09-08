@@ -89,9 +89,18 @@ export class Hud {
 
   constructor(private readonly cb: HudCallbacks) {
     // A tap anywhere outside the popover closes it.
-    document.addEventListener('pointerdown', (ev) => {
-      if (!this.popover.hidden && !this.popover.contains(ev.target as Node)) this.closePopover()
-    })
+    // A tap anywhere outside the popover closes it - and goes no further, so
+    // the map under it does not open something else.
+    document.addEventListener(
+      'pointerdown',
+      (ev) => {
+        if (this.popover.hidden || this.popover.contains(ev.target as Node)) return
+        this.closePopover()
+        ev.stopPropagation()
+        ev.preventDefault()
+      },
+      true,
+    )
     const defs: Array<[string, number | 'morning']> = [
       ['speed.pause', 0],
       ['speed.x1', 1],
@@ -128,7 +137,7 @@ export class Hud {
   updateTop(state: GameState, temps: RoomTemps): void {
     const day = dayOf(state.totalMinutes)
     const night = nightOf(day)
-    this.phase.textContent = night === 0 ? t('hud.phase', { day, left: PREP_DAYS - day + 1 }) : t('hud.nightPhase', { night, total: NIGHT_DAYS })
+    this.phase.textContent = night === 0 ? t('hud.phase', { day, total: PREP_DAYS }) : t('hud.nightPhase', { night, total: NIGHT_DAYS })
     const h = hourOf(state.totalMinutes)
     const hh = Math.floor(h)
     const mm = Math.round((h - hh) * 60)
@@ -210,7 +219,11 @@ export class Hud {
       this.closePopover()
       return
     }
-    this.popover.replaceChildren(...this.stockDetail(key).map((line) => this.line(line)))
+    const close = document.createElement('button')
+    close.className = 'close'
+    close.textContent = '×'
+    close.addEventListener('click', () => this.closePopover())
+    this.popover.replaceChildren(close, ...this.stockDetail(key).map((line) => this.line(line)))
     this.popover.dataset.key = key
     this.popover.hidden = false
     const r = anchor.getBoundingClientRect()
@@ -248,7 +261,7 @@ export class Hud {
         const name = document.createElement('b')
         name.textContent = p.name
         const status = document.createElement('span')
-        status.textContent = `${this.statusOf(p)} · ${t('status.budget', { h: Math.max(0, Math.ceil(p.budgetMin / 60)) })}`
+        status.textContent = this.statusOf(p) // the hours are the white bar
         // Two bars: health (green) and work hours left today (white), same as over the head.
         const bar = document.createElement('div')
         bar.className = 'hp'
@@ -278,13 +291,9 @@ export class Hud {
     if (key === this.lastSheetKey) return
     this.lastSheetKey = key
     this.sheet.replaceChildren()
-    if (target.kind === 'none') {
-      this.sheet.classList.add('empty')
-      this.sheet.append(this.line(t('select.hint'), 'hint'))
-      if (note) this.sheet.append(this.line(note, 'note'))
-      return
-    }
-    this.sheet.classList.remove('empty')
+    // Nothing selected: no panel at all, the map is the interface.
+    this.sheet.hidden = target.kind === 'none'
+    if (target.kind === 'none') return
     if (target.kind === 'person') this.personSheet(state, temps, target.id)
     else if (target.kind === 'section') this.sectionSheet(state, target.id)
     else if (target.kind === 'stove') this.stoveSheet(state, temps, target.id)
@@ -342,9 +351,10 @@ export class Hud {
     }
     for (const p of free) {
       const chip = document.createElement('button')
-      chip.className = `chip ${p.id === this.who ? 'selected' : ''}`
-      const flag = p.wounded ? t('chip.wounded') : p.budgetMin <= 0 ? t('chip.tired') : p.job && p.job.kind !== 'home' ? t('chip.busy') : ''
-      chip.textContent = flag ? `${p.name} · ${flag}` : p.name
+      // Just the name: grey when they cannot take the job (out of hours). Busy
+      // and wounded people can, so they look the same as the rest.
+      chip.className = `chip ${p.id === this.who ? 'selected' : ''} ${p.budgetMin <= 0 ? 'off' : ''}`
+      chip.textContent = p.name
       chip.addEventListener('click', () => {
         this.who = p.id
         this.lastSheetKey = ''
@@ -475,7 +485,7 @@ export class Hud {
     const st = state.stoves[index]
     if (!st) return
     const room = stoveRoom(state, index)
-    const roomName = t(index === 0 ? 'room.hall' : index === 1 ? 'room.office' : 'room.store')
+    const roomName = this.roomLabel(state, room) ?? t('room.hall')
     const temp = temps.temps.get(room) ?? -22
     this.sheet.append(
       this.line(t('stove.title', { room: roomName }), 'title'),

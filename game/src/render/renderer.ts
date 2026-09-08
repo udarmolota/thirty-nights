@@ -15,6 +15,30 @@ import { stoveRoom } from '../sim/heat'
 import { GATE } from '../sim/base'
 import balance from '../data/balance.json'
 
+/** Where along a polyline a fraction of its length falls, and which way it points there. */
+function alongTrail(trail: Array<{ c: number; r: number }>, alpha: number): { c: number; r: number; heading: number } {
+  const lengths: number[] = []
+  let total = 0
+  for (let i = 1; i < trail.length; i++) {
+    const d = Math.hypot(trail[i]!.c - trail[i - 1]!.c, trail[i]!.r - trail[i - 1]!.r)
+    lengths.push(d)
+    total += d
+  }
+  let target = alpha * total
+  for (let i = 1; i < trail.length; i++) {
+    const a = trail[i - 1]!
+    const b = trail[i]!
+    const d = lengths[i - 1]!
+    if (target <= d || i === trail.length - 1) {
+      const f = d > 1e-6 ? Math.min(1, target / d) : 1
+      return { c: a.c + (b.c - a.c) * f, r: a.r + (b.r - a.r) * f, heading: d > 1e-6 ? Math.atan2(b.r - a.r, b.c - a.c) : 0 }
+    }
+    target -= d
+  }
+  const last = trail[trail.length - 1]!
+  return { c: last.c, r: last.r, heading: 0 }
+}
+
 /** A full day's work budget in minutes, for the hours bar. */
 const WORK_MIN = balance.calendar.workHoursPerDay * 60
 
@@ -255,15 +279,22 @@ export class Renderer {
     // --- people -----------------------------------------------------------------------
     for (const p of state.people) {
       if (p.health <= 0) continue
-      const pc = p.prev.c + (p.pos.c - p.prev.c) * alpha
-      const pr = p.prev.r + (p.pos.r - p.prev.r) * alpha
+      // Walking figures follow the path they took this step; others lerp.
+      const spot = p.trail.length >= 2 ? alongTrail(p.trail, alpha) : null
+      const pc = spot ? spot.c : p.prev.c + (p.pos.c - p.prev.c) * alpha
+      const pr = spot ? spot.r : p.prev.r + (p.pos.r - p.prev.r) * alpha
+      const heading = spot ? spot.heading : p.heading
       const x = sx(pc) + ts / 2
       const y = sy(pr) + ts / 2
       const img = this.sprites.get(p.sprite as SpriteName)
       const size = ts * 1.6
       ctx.save()
       ctx.translate(x, y)
-      ctx.rotate(p.heading - Math.PI / 2) // the sprites face down (+y) when unrotated
+      ctx.rotate(heading - Math.PI / 2) // the sprites face down (+y) when unrotated
+      // At work the figure rocks in the rhythm of the swing, so a still worker
+      // still reads as busy (walking and sleeping figures stay steady).
+      const working = p.job !== null && p.job.kind !== 'home' && !p.isMoving && !p.sleeping
+      if (working) ctx.translate(0, Math.sin(nowMs / 160) * ts * 0.08)
       if (img) this.withShadow(ts, () => ctx.drawImage(img, -size / 2, -size / 2, size, size))
       else {
         ctx.fillStyle = p.id === 'ivan' ? '#4f86b0' : '#3f7a5a'
@@ -291,12 +322,18 @@ export class Renderer {
         ctx.arc(x + size * 0.4, y - size * 0.4, Math.max(3, ts * 0.22), 0, Math.PI * 2)
         ctx.fill()
       }
-      // Progress bar while working on a section.
-      if (p.job?.kind === 'section' && !p.isMoving) {
-        const section = state.section(p.job.sectionId)
-        if (section?.op) {
-          const total = { repair: 120, reinforce: 90, build: 180, board: 60 }[section.op]
-          const frac = Math.min(1, section.progress / total)
+      // Progress bar over a worker: a section job shows how far the work is,
+      // an endless job (chop, saw) shows how much of the day's hours is left.
+      if (p.job && p.job.kind !== 'home' && !p.isMoving) {
+        let frac = -1
+        if (p.job.kind === 'section') {
+          const section = state.section(p.job.sectionId)
+          if (section?.op) {
+            const total = { repair: 120, reinforce: 90, build: 180, board: 60 }[section.op]
+            frac = Math.min(1, section.progress / total)
+          }
+        } else frac = Math.max(0, Math.min(1, p.budgetMin / WORK_MIN))
+        if (frac >= 0) {
           const w = ts * 2
           ctx.fillStyle = OUTLINE
           ctx.fillRect(x - w / 2, y - size * 0.75 - 4, w, 4)
@@ -523,7 +560,9 @@ export class Renderer {
     if (this.floorKind && this.floorVersion === grid.structureVersion) return this.floorKind
     const rooms = state.rooms()
     const kindOfRoom = new Map<number, number>()
-    for (let i = 0; i < state.stoves.length; i++) kindOfRoom.set(stoveRoom(state, i), i === 0 ? 1 : i === 1 ? 2 : 3)
+    // Floor by the stove that heats the room: 0 and 3 are the hall's, 1 the office's, 2 the storeroom's.
+    const STOVE_FLOOR = [1, 2, 3, 1]
+    for (let i = 0; i < state.stoves.length; i++) kindOfRoom.set(stoveRoom(state, i), STOVE_FLOOR[i] ?? 1)
     const kind = new Uint8Array(grid.w * grid.h)
     for (let r = 0; r < grid.h; r++) {
       for (let c = 0; c < grid.w; c++) {

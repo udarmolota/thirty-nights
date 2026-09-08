@@ -46,10 +46,14 @@ const LAYOUT: Layout = {
     { c: 35, r: 24 }, // hall <-> storeroom
   ],
   hallDoor: { c: 43, r: 18 },
+  // Stoves stand in the middle of their rooms (they look right there and the
+  // heat reads as even); the hall gets two. Index 1 is the office stove, lit
+  // from the start - the code relies on that order.
   stoves: [
-    { c: 33, r: 12, front: { c: 33, r: 13 } }, // hall, against the north wall
-    { c: 30, r: 31, front: { c: 30, r: 30 } }, // office, against the south wall
-    { c: 38, r: 25, front: { c: 37, r: 25 } }, // storeroom corner
+    { c: 29, r: 17, front: { c: 29, r: 18 } }, // hall, west half
+    { c: 26, r: 28, front: { c: 26, r: 29 } }, // office, between the beds
+    { c: 35, r: 28, front: { c: 35, r: 29 } }, // storeroom, middle
+    { c: 37, r: 17, front: { c: 37, r: 18 } }, // hall, east half
   ],
   beds: [
     { c: 24, r: 27, vertical: true },

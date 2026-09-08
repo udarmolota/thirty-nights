@@ -265,7 +265,11 @@ function main(): void {
     temps = info.temps
     for (const ev of state.events.splice(0)) onSimEvent(ev)
     // Daylight is the "go out" window: say when it opens and when an hour is left.
-    if (!wasLight && isDaylight(state.totalMinutes)) hud.toast(t('toast.daylight'), 'good')
+    if (!wasLight && isDaylight(state.totalMinutes)) {
+      // Dawn is a decision point: who goes out, who stays. Stop and say so.
+      hud.toast(t('toast.daylight', { h: daylightHours(state.day) }), 'good')
+      pause()
+    }
     if (isDaylight(state.totalMinutes) && daylightLeft(state.totalMinutes) <= 60 && duskWarnedDay !== state.day) {
       duskWarnedDay = state.day
       hud.toast(t('toast.duskSoon'), '')

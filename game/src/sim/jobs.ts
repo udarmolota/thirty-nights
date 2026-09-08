@@ -181,6 +181,7 @@ function moveAlongPath(person: Person): void {
   const path = person.path
   if (!path) return
   let budget = WALK_PER_STEP
+  person.trail = [{ ...person.pos }]
   while (budget > 0 && path.length > 0) {
     const wp = path[0]!
     const dc = wp.c - person.pos.c
@@ -195,6 +196,7 @@ function moveAlongPath(person: Person): void {
       person.pos = { c: person.pos.c + (dc / dist) * budget, r: person.pos.r + (dr / dist) * budget }
       budget = 0
     }
+    person.trail.push({ ...person.pos })
   }
   if (path.length === 0) person.path = null
 }
@@ -202,6 +204,7 @@ function moveAlongPath(person: Person): void {
 /** One 10-minute step of a person's day. */
 export function tickPerson(state: GameState, person: Person): void {
   person.prev = { ...person.pos }
+  person.trail = []
   const hour = hourOf(state.totalMinutes)
   const nightHours = hour >= 22 || hour < 6
 

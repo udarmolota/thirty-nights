@@ -34,6 +34,20 @@ describe('jobs', () => {
     expect(assignChop(dark, dark.people[0]!)).toBe('dark')
   })
 
+  it('a walking step leaves a trail along the path: prev first, pos last, small hops', () => {
+    const state = fresh()
+    const ivan = state.people[0]!
+    expect(assignChop(state, ivan)).toBe('ok')
+    simStep(state)
+    const trail = ivan.trail
+    expect(trail.length).toBeGreaterThan(2)
+    expect(trail[0]).toEqual(ivan.prev)
+    expect(trail[trail.length - 1]).toEqual(ivan.pos)
+    for (let i = 1; i < trail.length; i++) {
+      expect(Math.hypot(trail[i]!.c - trail[i - 1]!.c, trail[i]!.r - trail[i - 1]!.r)).toBeLessThanOrEqual(1.5)
+    }
+  })
+
   it('two choppers keep their distance and roam the forest edge', () => {
     const state = fresh()
     const [ivan, marta] = state.people as [Person, Person]

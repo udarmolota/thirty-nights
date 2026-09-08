@@ -91,8 +91,13 @@ export function darkness(totalMinutes: number): number {
   const h = hourOf(totalMinutes)
   const from = 12 - d / 2
   const to = 12 + d / 2
-  const ramp = 1.5 // hours of dusk/dawn
-  if (h >= from && h < to) return 0
-  if (h < from) return Math.min(1, (from - h) / ramp)
-  return Math.min(1, (h - to) / ramp)
+  // Dark until dawn; dawn brightens over an hour once the window is open;
+  // full light until dusk; dusk darkens over the hour after it. So "until
+  // dusk" is still light, and after it the forest is closed and it is dark.
+  const ramp = 1
+  if (h < from) return 1
+  if (h < from + ramp) return 1 - (h - from) / ramp
+  if (h < to) return 0
+  if (h < to + ramp) return (h - to) / ramp
+  return 1
 }

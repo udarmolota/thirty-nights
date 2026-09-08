@@ -32,6 +32,12 @@ describe('clock', () => {
     expect(daylightLeft(at(20, 12))).toBe(0)
     expect(darkness(at(1, 12))).toBe(0)
     expect(darkness(at(20, 12))).toBe(1)
+    // Day 1: light 08:00-16:00. Dark right before dawn, half-lit half an hour in, dark an hour after dusk.
+    expect(darkness(at(1, 7.9))).toBe(1)
+    expect(darkness(at(1, 8.5))).toBeCloseTo(0.5, 5)
+    expect(darkness(at(1, 15.9))).toBe(0)
+    expect(darkness(at(1, 16.5))).toBeCloseTo(0.5, 5)
+    expect(darkness(at(1, 17.5))).toBe(1)
   })
 
   it('day and hour math', () => {

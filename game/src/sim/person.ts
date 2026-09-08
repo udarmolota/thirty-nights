@@ -30,6 +30,10 @@ export class Person {
   woundDays = 0
   pos: { c: number; r: number }
   prev: { c: number; r: number }
+  /** Points passed during the last step, prev first and pos last, so the
+   *  walk is drawn along the real path (through doors, not walls). Empty
+   *  when the figure did not walk. */
+  trail: Array<{ c: number; r: number }> = []
   path: Cell[] | null = null
   /** Facing, radians; the sprite turns toward movement. */
   heading = 0

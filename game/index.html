@@ -316,6 +316,10 @@
         font-size: 12px;
         padding: 4px 8px;
       }
+      .chip.off {
+        color: var(--muted);
+        opacity: 0.6;
+      }
       .chip.selected {
         border-color: var(--accent);
         background: #302a23;
@@ -353,6 +357,22 @@
       }
       #popover div + div {
         margin-top: 2px;
+      }
+      #popover {
+        padding-right: 28px;
+      }
+      #popover .close {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 24px;
+        height: 24px;
+        border: 0;
+        background: none;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
       }
       #toasts {
         position: fixed;
