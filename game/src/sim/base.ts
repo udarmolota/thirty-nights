@@ -9,6 +9,7 @@ import { Person } from './person'
 import { applyToGrid, makeSection, type Section, type SectionState } from './sections'
 import { GameState } from './state'
 import balance from '../data/balance.json'
+import { buildVillage } from './village'
 
 export const MAP_W = 64
 export const MAP_H = 44
@@ -289,6 +290,8 @@ export function buildBase(state: GameState): void {
     }
   }
   state.yardAnchor = { c: GATE.c - 1, r: GATE.r0 + 1 }
+
+  buildVillage(state)
 
   // --- people: at home beside their beds ---------------------------------------
   const budget = balance.calendar.workHoursPerDay * 60

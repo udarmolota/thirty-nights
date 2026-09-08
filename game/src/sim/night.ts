@@ -28,7 +28,7 @@ function weakest(sections: Section[]): Section | null {
   return best
 }
 
-function wound(state: GameState, personId: string, amount: number): void {
+export function wound(state: GameState, personId: string, amount: number): void {
   const p = state.person(personId)
   if (!p || p.health <= 0) return
   p.health = Math.max(0, p.health - amount)
@@ -100,7 +100,7 @@ export function tickNight(state: GameState): void {
   // once per night (from the step after the breach: the shout comes first).
   if (entered !== 'yard') {
     for (const p of state.people) {
-      if (p.health <= 0 || night.yardVictims.has(p.id)) continue
+      if (p.health <= 0 || p.away || night.yardVictims.has(p.id)) continue
       const room = state.roomAt(Math.round(p.pos.c), Math.round(p.pos.r))
       if (room === state.yardRoomId && !p.sleeping) {
         night.yardVictims.add(p.id)

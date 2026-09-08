@@ -12,7 +12,8 @@ import { assignChop, assignSaw, assignSection, cancelJob, treat, type AssignResu
 import { GameState } from './sim/state'
 import { simStep } from './sim/tick'
 import { clearSave, loadGame, saveGame, savedDay } from './sim/save'
-import { NIGHT_DAYS, PREP_DAYS, dayOf, daylightHours, daylightLeft, hourOf, isDaylight, nightKind, nightOf } from './sim/time'
+import { sendExpedition } from './sim/expedition'
+import { NIGHT_DAYS, PREP_DAYS, dayOf, daylightHours, daylightLeft, hourOf, isDaylight, nightOf, clockOf } from './sim/time'
 import type { SimEvent } from './sim/events'
 import { Camera, TILE_PX } from './render/camera'
 import { Renderer, type Selection } from './render/renderer'
@@ -102,6 +103,15 @@ function main(): void {
       if (!p) return
       report(p.name, treat(state, p))
     },
+    sendExpedition: (personId, houseId) => {
+      const p = state.person(personId)
+      if (!p) return
+      report(p.name, sendExpedition(state, p, houseId))
+    },
+    selectHouse: (houseId) => {
+      sel = houseId ? { kind: 'house', id: houseId } : { kind: null, id: 0 }
+      note = ''
+    },
     toggleStove: (index) => {
       const st = state.stoves[index]
       if (!st) return
@@ -166,6 +176,7 @@ function main(): void {
     if (sel.kind === 'stove') return { kind: 'stove', id: sel.id as number }
     if (sel.kind === 'tree') return { kind: 'tree' }
     if (sel.kind === 'sawhorse') return { kind: 'sawhorse' }
+    if (sel.kind === 'house') return { kind: 'house', id: sel.id as string }
     return { kind: 'none' }
   }
 
@@ -205,8 +216,8 @@ function main(): void {
         break
       }
       case 'nightFalls':
-        hud.toast(t(`toast.${ev.kind}`, { night: ev.night, n: ev.attackers }), ev.kind === 'assault' ? 'bad' : '')
-        if (ev.kind === 'assault') pause()
+        // Only that the night has come: what it brings, the player finds out.
+        hud.toast(t('toast.nightFalls', { night: ev.night }), '')
         break
       case 'fenceHole':
         hud.toast(t('toast.fenceHole'), 'bad')
@@ -230,6 +241,20 @@ function main(): void {
         hud.toast(t('toast.wounded', { name: state.person(ev.personId)?.name ?? ev.personId }), 'bad')
         pause()
         break
+      case 'expeditionLeft': {
+        const house = state.houses.find((x) => x.id === ev.houseId)
+        hud.toast(t('toast.expeditionLeft', { name: state.person(ev.personId)?.name ?? ev.personId, house: house ? t(`house.${house.type}`) : '?', t: clockOf(ev.returnAt) }), '')
+        break
+      }
+      case 'expeditionReturn': {
+        const name = state.person(ev.personId)?.name ?? ev.personId
+        const parts: string[] = []
+        if (ev.loot.food > 0) parts.push(t('loot.food', { n: ev.loot.food }))
+        if (ev.loot.boards > 0) parts.push(t('loot.boards', { n: ev.loot.boards }))
+        if (ev.loot.meds > 0) parts.push(t('loot.meds', { n: ev.loot.meds }))
+        hud.toast(parts.length > 0 ? t('toast.expeditionReturn', { name, list: parts.join(' · ') }) : t('toast.expeditionEmpty', { name }), ev.hurt ? 'bad' : 'good')
+        break
+      }
       case 'recovered':
         hud.toast(t('toast.recovered', { name: state.person(ev.personId)?.name ?? ev.personId }), 'good')
         break
@@ -275,17 +300,12 @@ function main(): void {
       hud.toast(t('toast.duskSoon'), '')
     }
     if (toMorning && hourOf(state.totalMinutes) >= 6 && hourOf(state.totalMinutes) < 6.2) setSpeed(1)
-    // Everyone is done for the day: run to morning by itself (events still pause),
-    // unless an assault is coming, then only say so and leave the night to the player.
+    // Everyone is done for the day: run to morning by itself. Every night event
+    // still pauses, so nothing happens behind the player's back.
     if (!toMorning && loop.speed > 0 && autoMorningDay !== state.day && everyoneDone(state)) {
       autoMorningDay = state.day
-      const h = hourOf(state.totalMinutes)
-      const night = nightOf(h >= 6 ? state.day + 1 : state.day)
-      if (night > 0 && nightKind(night) === 'assault') hud.toast(t('toast.allTiredAssault'), 'bad')
-      else {
-        hud.toast(t('toast.allTired'), '')
-        goToMorning()
-      }
+      hud.toast(t('toast.allTired'), '')
+      goToMorning()
     }
   }
 
@@ -294,6 +314,7 @@ function main(): void {
     hud.updateTop(state, temps)
     hud.updateRoster(state, sel.kind === 'person' ? (sel.id as string) : null)
     hud.updateSheet(state, temps, sheetTarget(), note)
+    hud.updateMap(state, sel.kind === 'house' ? (sel.id as string) : null)
   }
 
   const fit = (): void => {

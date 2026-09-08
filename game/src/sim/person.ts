@@ -41,6 +41,8 @@ export class Person {
   /** Work minutes left in the daily budget (12 h); refilled each morning. */
   budgetMin: number
   sleeping = false
+  /** Off on an expedition: which house and when they are back (game minutes). */
+  away: { houseId: string; returnAt: number } | null = null
   /** Where they stand when idle: beside their bed. */
   home: Cell
 

@@ -301,7 +301,7 @@ export function tickPerson(state: GameState, person: Person): void {
 // ---- planning: what would this person achieve, before committing --------------------
 
 /** A job the player is considering; the sheet shows an estimate per person, then confirms. */
-export type Plan = { kind: 'chop' } | { kind: 'saw' } | { kind: 'section'; sectionId: number; op: SectionOp }
+export type Plan = { kind: 'chop' } | { kind: 'saw' } | { kind: 'section'; sectionId: number; op: SectionOp } | { kind: 'expedition'; houseId: string }
 
 export interface JobEstimate {
   /** 'ok', or why it could not start (the same reasons assigning would give). */
@@ -317,6 +317,8 @@ export interface JobEstimate {
   boardsCost: number
   /** False when today's hours will not see the work through (it continues tomorrow). */
   enoughToday: boolean
+  /** The job stands in the yard while the enemies are in it: whoever goes gets hurt. */
+  danger: boolean
 }
 
 function walkMinutes(state: GameState, person: Person, target: Cell): number | null {
@@ -327,8 +329,9 @@ function walkMinutes(state: GameState, person: Person, target: Cell): number | n
 
 /** Mirror of the assign functions and tickPerson, without touching anything. */
 export function estimateJob(state: GameState, person: Person, plan: Plan): JobEstimate {
-  const none: JobEstimate = { result: 'ok', walkMin: 0, workMin: 0, wood: 0, boards: 0, boardsCost: 0, enoughToday: true }
+  const none: JobEstimate = { result: 'ok', walkMin: 0, workMin: 0, wood: 0, boards: 0, boardsCost: 0, enoughToday: true, danger: false }
   const fail = (result: AssignResult): JobEstimate => ({ ...none, result })
+  if (plan.kind === 'expedition') return fail('nothingToDo') // estimated by sim/expedition
   if (person.health <= 0 || person.budgetMin <= 0) return fail('tired')
   const rate = person.work * (person.wounded ? W.workFactor : 1) // work minutes per real minute
 
@@ -363,5 +366,7 @@ export function estimateJob(state: GameState, person: Person, plan: Plan): JobEs
   if (walkMin === null) return fail('noPath')
   const remaining = section.op === plan.op ? Math.max(0, cost.minutes - section.progress) : cost.minutes
   const workMin = remaining / rate
-  return { ...none, walkMin, workMin, boardsCost, enoughToday: workMin <= person.budgetMin }
+  const yardHostile = state.night.phase === 'yard' || state.night.phase === 'people'
+  const danger = yardHostile && spot !== null && state.roomAt(spot.c, spot.r) === state.yardRoomId
+  return { ...none, walkMin, workMin, boardsCost, enoughToday: workMin <= person.budgetMin, danger }
 }

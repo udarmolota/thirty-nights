@@ -7,6 +7,7 @@ import { computeRooms, TileGrid, type Cell, type RoomData } from '../world'
 import type { SimEvent } from './events'
 import type { Person } from './person'
 import type { Section } from './sections'
+import type { House } from './village'
 import { MIN_PER_DAY } from './time'
 import balance from '../data/balance.json'
 
@@ -69,6 +70,8 @@ export class GameState {
    *  region id is looked up from it, because region ids are renumbered
    *  whenever the perimeter changes. */
   yardAnchor: Cell = { c: 0, r: 0 }
+  /** The village beyond the fence, house by house. */
+  houses: House[] = []
   events: SimEvent[] = []
   night: NightState = {
     phase: 'none',

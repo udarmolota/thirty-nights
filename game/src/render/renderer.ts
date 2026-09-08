@@ -43,7 +43,7 @@ function alongTrail(trail: Array<{ c: number; r: number }>, alpha: number): { c:
 const WORK_MIN = balance.calendar.workHoursPerDay * 60
 
 export interface Selection {
-  kind: 'person' | 'section' | 'stove' | 'tree' | 'sawhorse' | null
+  kind: 'person' | 'section' | 'stove' | 'tree' | 'sawhorse' | 'house' | null
   id: number | string
 }
 
@@ -278,7 +278,7 @@ export class Renderer {
 
     // --- people -----------------------------------------------------------------------
     for (const p of state.people) {
-      if (p.health <= 0) continue
+      if (p.health <= 0 || p.away) continue // the dead and the ones out in the village
       // Walking figures follow the path they took this step; others lerp.
       const spot = p.trail.length >= 2 ? alongTrail(p.trail, alpha) : null
       const pc = spot ? spot.c : p.prev.c + (p.pos.c - p.prev.c) * alpha
@@ -768,9 +768,14 @@ export class Renderer {
         c = t.c + outC * (1.2 + (seed % 3) * 0.6) + (target.orientation === 'h' ? (seed % 5) * 0.2 : 0)
         r = t.r + out * (1.2 + (seed % 3) * 0.6) + (target.orientation === 'v' ? (seed % 5) * 0.2 : 0)
       } else if (target && night.phase === 'yard') {
+        // At the wall they are hitting, on its OUTSIDE: the section knows which
+        // tile is behind it, so the eyes never show up inside the building.
         const t = target.tiles[i % target.tiles.length]!
-        c = t.c + ((seed % 5) - 2) * 0.6 + (target.orientation === 'v' ? 1.5 : 0)
-        r = t.r + ((seed % 3) - 1) * 0.8 + (target.orientation === 'h' ? 1.5 : 0)
+        const inside = target.inside ?? t
+        const oc = Math.sign(t.c - inside.c)
+        const orr = Math.sign(t.r - inside.r)
+        c = t.c + oc * (1.2 + (seed % 3) * 0.5) + (orr !== 0 ? ((seed % 5) - 2) * 0.5 : 0)
+        r = t.r + orr * (1.2 + (seed % 3) * 0.5) + (oc !== 0 ? ((seed % 5) - 2) * 0.5 : 0)
       } else {
         // In the yard at large or inside: scatter around the gate side of the building.
         c = GATE.c - 4 - (seed % 6)

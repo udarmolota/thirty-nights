@@ -117,6 +117,7 @@ export function bedroomTemp(state: GameState, temps: RoomTemps): number {
 export function applyCold(state: GameState, temps: RoomTemps): void {
   for (const p of state.people) {
     if (p.health <= 0) continue
+    if (p.away) continue // not here to freeze
     const resting = p.sleeping || (p.job === null && !p.isMoving)
     if (!resting) continue
     const t = tempAt(state, temps, p.pos.c, p.pos.r)

@@ -1,0 +1,26 @@
+{
+  "searchMinutes": 60,
+  "weights": { "food": 1, "boards": 2, "meds": 0 },
+  "survivorHouses": 3,
+  "lateWound": 15,
+  "dangerWound": 15,
+  "houses": [
+    { "id": "r1", "type": "house", "x": 0.265, "y": 0.39, "travelMin": 30, "loot": { "food": 6, "boards": 3, "meds": 0 }, "danger": 0.05 },
+    { "id": "r2", "type": "house", "x": 0.3, "y": 0.56, "travelMin": 40, "loot": { "food": 4, "boards": 4, "meds": 0 }, "danger": 0.05 },
+    { "id": "r3", "type": "house", "x": 0.325, "y": 0.41, "travelMin": 50, "loot": { "food": 5, "boards": 2, "meds": 0 }, "danger": 0.05 },
+    { "id": "r4", "type": "house", "x": 0.345, "y": 0.29, "travelMin": 60, "loot": { "food": 7, "boards": 2, "meds": 0 }, "danger": 0.1 },
+    { "id": "r5", "type": "house", "x": 0.4, "y": 0.24, "travelMin": 75, "loot": { "food": 8, "boards": 3, "meds": 0 }, "danger": 0.1 },
+    { "id": "r6", "type": "house", "x": 0.44, "y": 0.6, "travelMin": 75, "loot": { "food": 5, "boards": 3, "meds": 0 }, "danger": 0.1 },
+    { "id": "r7", "type": "house", "x": 0.5, "y": 0.7, "travelMin": 90, "loot": { "food": 6, "boards": 4, "meds": 0 }, "danger": 0.1 },
+    { "id": "r8", "type": "house", "x": 0.47, "y": 0.4, "travelMin": 90, "loot": { "food": 4, "boards": 2, "meds": 0 }, "danger": 0.1 },
+    { "id": "r9", "type": "house", "x": 0.56, "y": 0.55, "travelMin": 100, "loot": { "food": 8, "boards": 2, "meds": 0 }, "danger": 0.15 },
+    { "id": "r10", "type": "house", "x": 0.57, "y": 0.32, "travelMin": 110, "loot": { "food": 6, "boards": 3, "meds": 0 }, "danger": 0.15 },
+    { "id": "r11", "type": "house", "x": 0.66, "y": 0.6, "travelMin": 120, "loot": { "food": 7, "boards": 4, "meds": 0 }, "danger": 0.15 },
+    { "id": "r12", "type": "house", "x": 0.76, "y": 0.4, "travelMin": 120, "loot": { "food": 8, "boards": 3, "meds": 0 }, "danger": 0.2 },
+    { "id": "garage", "type": "garage", "x": 0.545, "y": 0.39, "travelMin": 120, "loot": { "food": 5, "boards": 4, "meds": 0 }, "danger": 0.1 },
+    { "id": "shop", "type": "shop", "x": 0.64, "y": 0.2, "travelMin": 150, "loot": { "food": 45, "boards": 0, "meds": 0 }, "danger": 0.1 },
+    { "id": "lumber", "type": "lumber", "x": 0.72, "y": 0.75, "travelMin": 180, "loot": { "food": 0, "boards": 40, "meds": 0 }, "danger": 0.1 },
+    { "id": "clinic", "type": "clinic", "x": 0.8, "y": 0.3, "travelMin": 180, "loot": { "food": 0, "boards": 0, "meds": 6 }, "danger": 0.3 },
+    { "id": "office", "type": "office", "x": 0.85, "y": 0.54, "travelMin": 180, "loot": { "food": 3, "boards": 6, "meds": 0 }, "danger": 0.15 }
+  ]
+}

@@ -8,6 +8,8 @@ import type { GameState } from '../sim/state'
 import type { Person } from '../sim/person'
 import { availableOps, maxHp, opCost, type SectionOp } from '../sim/sections'
 import { estimateJob, type JobEstimate, type Plan } from '../sim/jobs'
+import { estimateExpedition } from '../sim/expedition'
+import { isLooted } from '../sim/village'
 import { STEP_MIN } from '../sim/time'
 import balance from '../data/balance.json'
 import { bedroomTemp, stoveRoom, type RoomTemps } from '../sim/heat'
@@ -33,6 +35,9 @@ export interface HudCallbacks {
   assignSection: (personId: string, sectionId: number, op: SectionOp) => void
   treatPerson: (personId: string) => void
   toggleStove: (index: number) => void
+  sendExpedition: (personId: string, houseId: string) => void
+  /** A house was tapped on the map (null = the map was closed or a tap on nothing). */
+  selectHouse: (houseId: string | null) => void
 }
 
 export type SheetTarget =
@@ -41,6 +46,7 @@ export type SheetTarget =
   | { kind: 'stove'; id: number }
   | { kind: 'tree' }
   | { kind: 'sawhorse' }
+  | { kind: 'house'; id: string }
   | { kind: 'none' }
 
 function el<T extends HTMLElement>(id: string): T {
@@ -60,6 +66,8 @@ const ICONS: Record<string, string> = {
   wood: ICON('<rect x="2" y="5" width="12" height="6" rx="3"/><circle cx="5" cy="8" r="1.4"/><path d="M8 6.5h4M8 9.5h4"/>'),
   boards: ICON('<rect x="2" y="5.5" width="12" height="5"/><path d="M6 5.5v5M10 5.5v5"/>'),
   meds: ICON('<rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/><path d="M8 5.5v5M5.5 8h5"/>'),
+  calendar: ICON('<rect x="2.5" y="3.5" width="11" height="10" rx="1"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/>'),
+  hourglass: ICON('<path d="M4.5 2.5h7M4.5 13.5h7M5.5 2.5v1.5l2.5 4 2.5-4V2.5M5.5 13.5V12l2.5-4 2.5 4v1.5"/>'),
 }
 
 export class Hud {
@@ -83,6 +91,13 @@ export class Hud {
   private lastSheetKey = ''
   private modalShownAt = 0
   private readonly popover = el<HTMLDivElement>('popover')
+  private readonly village = el<HTMLDivElement>('village')
+  private readonly villageMap = el<HTMLDivElement>('villageMap')
+  private readonly runners = el<HTMLDivElement>('runners')
+  private readonly mapToggle = el<HTMLButtonElement>('mapToggle')
+  /** The village map is open over the base. */
+  mapOpen = false
+  private lastMapKey = ''
   /** The last sim snapshot the top bar was drawn from, for the popover text. */
   private lastState: GameState | null = null
   private lastTemps: RoomTemps | null = null
@@ -115,6 +130,73 @@ export class Hud {
       this.speeds.appendChild(b)
       if (speed !== 'morning') this.speedButtons.push(b)
     }
+    this.mapToggle.textContent = t('map.open')
+    this.mapToggle.addEventListener('click', () => this.setMapOpen(!this.mapOpen))
+    // A tap on the map's empty paper drops the house selection.
+    this.villageMap.addEventListener('click', (ev) => {
+      if (ev.target === this.villageMap) this.cb.selectHouse(null)
+    })
+  }
+
+  setMapOpen(open: boolean): void {
+    this.mapOpen = open
+    this.village.hidden = !open
+    this.mapToggle.textContent = t(open ? 'map.close' : 'map.open')
+    this.lastMapKey = ''
+    this.cb.selectHouse(null)
+  }
+
+  /** Lay the map picture out to fit, and put a marker on every house. */
+  updateMap(state: GameState, selectedId: string | null): void {
+    if (!this.mapOpen) return
+    const box = this.village.getBoundingClientRect()
+    const aspect = 1376 / 768
+    let w = box.width - 24
+    let h = w / aspect
+    if (h > box.height - 24) {
+      h = box.height - 24
+      w = h * aspect
+    }
+    this.villageMap.style.width = `${w}px`
+    this.villageMap.style.height = `${h}px`
+    const key = state.houses.map((x) => `${x.id}:${isLooted(x)}:${x.visited}:${x.id === selectedId}`).join('|') + '#' + state.people.map((p) => (p.away ? `${p.id}@${p.away.returnAt}` : '')).join()
+    if (key === this.lastMapKey) return
+    this.lastMapKey = key
+    this.villageMap.replaceChildren(
+      ...state.houses.map((house) => {
+        const b = document.createElement('button')
+        const looted = isLooted(house)
+        b.className = `house ${house.type} ${looted ? 'looted' : ''} ${house.id === selectedId ? 'selected' : ''}`
+        b.style.left = `${house.x * 100}%`
+        b.style.top = `${house.y * 100}%`
+        // The sketch icon (crossed out once looted) with a short label under it.
+        const img = document.createElement('img')
+        img.src = `./art/icon_${house.type}${looted ? '_x' : ''}.png`
+        img.alt = ''
+        const label = document.createElement('span')
+        label.textContent = t(`marker.${house.type}`)
+        b.append(img, label)
+        b.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          this.cb.selectHouse(house.id)
+        })
+        return b
+      }),
+    )
+    const out = state.people.filter((p) => p.away && p.health > 0)
+    this.runners.replaceChildren(
+      ...out.map((p) => {
+        const house = state.houses.find((x) => x.id === p.away!.houseId)
+        return this.line(t('map.runner', { name: p.name, house: house ? t(`house.${house.type}`) : '?', t: this.clockOf(p.away!.returnAt) }))
+      }),
+    )
+    this.runners.hidden = out.length === 0
+  }
+
+  /** "13:40" for a game-minutes stamp. */
+  private clockOf(totalMinutes: number): string {
+    const m = ((totalMinutes % 1440) + 1440) % 1440
+    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   }
 
   /** "Office -2°, Workshop -22°, Storeroom -22°" for the morning report. */
@@ -137,22 +219,23 @@ export class Hud {
   updateTop(state: GameState, temps: RoomTemps): void {
     const day = dayOf(state.totalMinutes)
     const night = nightOf(day)
-    this.phase.textContent = night === 0 ? t('hud.phase', { day, total: PREP_DAYS }) : t('hud.nightPhase', { night, total: NIGHT_DAYS })
+    // Calendar icon + "8 of 14" (or "4 of 30" in the polar night), hourglass icon + clock.
+    this.iconText(this.phase, 'calendar', night === 0 ? t('hud.phase', { day, total: PREP_DAYS }) : t('hud.nightPhase', { night, total: NIGHT_DAYS }))
     const h = hourOf(state.totalMinutes)
     const hh = Math.floor(h)
     const mm = Math.round((h - hh) * 60)
-    this.clock.textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+    this.iconText(this.clock, 'hourglass', `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`)
     // The light field is the "may I go out" sign: green while the forest is open,
     // amber in the last hour, a countdown before dawn, muted in the dark.
     const toDawn = minutesToDaylight(state.totalMinutes)
     const left = daylightLeft(state.totalMinutes)
     let lightState = 'dark'
-    if (night > 0) this.light.textContent = t('hud.dark')
+    if (night > 0) this.light.textContent = t('hud.polarNight')
     else if (isDaylight(state.totalMinutes)) {
-      this.light.textContent = t('hud.lightLeft', { h: (left / 60).toFixed(1) })
+      this.light.textContent = t('hud.lightLeft', { t: this.clockDuration(left) })
       lightState = left <= 60 ? 'soon' : 'good'
     } else if (toDawn > 0) {
-      this.light.textContent = t('hud.lightIn', { t: this.duration(toDawn) })
+      this.light.textContent = t('hud.lightIn', { t: this.clockDuration(toDawn) })
       lightState = 'wait'
     } else this.light.textContent = t('hud.dark')
     this.light.className = lightState
@@ -239,6 +322,7 @@ export class Hud {
 
   private statusOf(p: Person): string {
     if (p.health <= 0) return '—'
+    if (p.away) return t('status.away', { t: this.clockOf(p.away.returnAt) })
     if (p.wounded && (p.sleeping || p.job === null)) return t('status.wounded', { days: p.woundDays })
     if (p.sleeping) return t('status.sleeping')
     if (p.job?.kind === 'home') return t('status.home')
@@ -299,6 +383,7 @@ export class Hud {
     else if (target.kind === 'stove') this.stoveSheet(state, temps, target.id)
     else if (target.kind === 'tree') this.objectSheet(state, 'tree', 'chop')
     else if (target.kind === 'sawhorse') this.objectSheet(state, 'sawhorse', 'saw')
+    else if (target.kind === 'house') this.houseSheet(state, target.id)
     if (note) this.sheet.append(this.line(note, 'note'))
   }
 
@@ -308,6 +393,10 @@ export class Hud {
       return s ? `${s.state}:${s.hp}:${s.buffer}:${s.op}:${Math.floor(s.progress)}:${s.boarded}:${Math.floor(state.res.boards)}` : ''
     }
     if (target.kind === 'stove') return `${state.stoves[target.id]?.lit}:${Math.floor(state.res.wood + state.res.boards)}`
+    if (target.kind === 'house') {
+      const h = state.houses.find((x) => x.id === target.id)
+      return h ? `${h.loot.food}:${h.loot.boards}:${h.loot.meds}:${h.visited}:${state.people.map((p) => `${p.id}${p.away ? '!' : ''}${p.budgetMin > 0}`).join()}` : ''
+    }
     if (target.kind === 'person') {
       const p = state.person(target.id)
       return p ? `${Math.round(p.health)}:${this.statusOf(p)}:${p.budgetMin}:${p.woundDays}:${Math.floor(state.res.meds)}` : ''
@@ -346,14 +435,15 @@ export class Hud {
     // A wounded worker is a valid pick (half pace); only the dead and the
     // out-of-hours are off the list. Auto-pick prefers the fit, the player's
     // own tap always sticks.
-    if (this.who === null || !free.some((p) => p.id === this.who && p.budgetMin > 0)) {
-      this.who = free.find((p) => !p.wounded && p.budgetMin > 0)?.id ?? free.find((p) => p.budgetMin > 0)?.id ?? free[0]?.id ?? null
+    const can = (p: Person): boolean => p.budgetMin > 0 && !p.away
+    if (this.who === null || !free.some((p) => p.id === this.who && can(p))) {
+      this.who = free.find((p) => !p.wounded && can(p))?.id ?? free.find(can)?.id ?? free[0]?.id ?? null
     }
     for (const p of free) {
       const chip = document.createElement('button')
       // Just the name: grey when they cannot take the job (out of hours). Busy
       // and wounded people can, so they look the same as the rest.
-      chip.className = `chip ${p.id === this.who ? 'selected' : ''} ${p.budgetMin <= 0 ? 'off' : ''}`
+      chip.className = `chip ${p.id === this.who ? 'selected' : ''} ${can(p) ? '' : 'off'}`
       chip.textContent = p.name
       chip.addEventListener('click', () => {
         this.who = p.id
@@ -376,7 +466,8 @@ export class Hud {
     const bedRoom = state.roomAt(p.home.c, p.home.r)
     const bedTemp = temps.temps.get(bedRoom) ?? -22
     this.sheet.append(this.line(t('person.sleeps', { room: this.roomLabel(state, bedRoom) ?? t('room.outside'), t: fmtTemp(bedTemp) }), bedTemp < 0 ? 'sub bad' : 'sub'))
-    const cant = p.health <= 0
+    const cant = p.health <= 0 || p.away !== null
+    if (p.away) this.sheet.append(this.line(t('person.away', { t: this.clockOf(p.away.returnAt) }), 'sub'))
     if (p.wounded) this.sheet.append(this.line(t('person.wounded', { days: p.woundDays }), 'sub'))
     const target = JSON.stringify({ kind: 'person', id })
     const kind = this.plan && this.plan.kind !== 'section' ? this.plan.kind : null
@@ -428,6 +519,29 @@ export class Hud {
     if (open) this.sheet.append(this.planBlock(state))
   }
 
+  /** A house on the map: what is there, how far, how dangerous, and the plan to send someone. */
+  private houseSheet(state: GameState, id: string): void {
+    const house = state.houses.find((x) => x.id === id)
+    if (!house) return
+    this.sheet.append(this.line(t(`house.${house.type}`), 'title'))
+    const looted = isLooted(house)
+    this.sheet.append(this.line(looted ? t('house.looted') : t('house.loot', { list: this.lootList(house.loot) }), 'sub'))
+    const dangerKey = house.danger >= 0.25 ? 'danger.high' : house.danger >= 0.12 ? 'danger.mid' : 'danger.low'
+    this.sheet.append(this.line(`${t('house.travel', { t: this.clockDuration(house.travelMin) })} · ${t(dangerKey)}`, 'sub'))
+    const target = JSON.stringify({ kind: 'house', id })
+    const open = this.plan !== null && this.plan.kind === 'expedition'
+    this.sheet.append(this.button(t('action.expedition'), '', () => this.openPlan(target, { kind: 'expedition', houseId: id }, null), open, looted || state.people.every((p) => p.health <= 0)))
+    if (open) this.sheet.append(this.planBlock(state))
+  }
+
+  private lootList(loot: { food: number; boards: number; meds: number }): string {
+    const parts: string[] = []
+    if (loot.food > 0) parts.push(t('loot.food', { n: Math.floor(loot.food) }))
+    if (loot.boards > 0) parts.push(t('loot.boards', { n: Math.floor(loot.boards) }))
+    if (loot.meds > 0) parts.push(t('loot.meds', { n: Math.floor(loot.meds) }))
+    return parts.length > 0 ? parts.join(' · ') : t('loot.nothing')
+  }
+
   /** An action was tapped: show who could do it and what it would yield, then wait for 'Do it'. */
   private openPlan(target: string, plan: Plan, who: string | null): void {
     this.plan = plan
@@ -442,23 +556,56 @@ export class Hud {
     box.append(this.whoRow(state))
     const plan = this.plan!
     const p = this.who ? state.person(this.who) : undefined
-    const est = p ? estimateJob(state, p, plan) : null
-    if (est) box.append(this.line(this.estimateText(plan, est), est.result === 'ok' ? 'sub estimate' : 'sub estimate bad'))
+    let ok = false
+    if (plan.kind === 'expedition') {
+      const house = state.houses.find((x) => x.id === plan.houseId)
+      const est = p && house ? estimateExpedition(state, p, house) : null
+      if (est) {
+        ok = est.result === 'ok'
+        if (!ok) box.append(this.line(t(`result.${est.result}`), 'sub estimate bad'))
+        else {
+          box.append(this.line(t('plan.trip', { t: this.clockDuration(est.minutes), at: this.clockOf(est.returnAt) }), 'sub estimate'))
+          box.append(this.line(est.beforeDusk ? t('plan.beforeDusk', { t: this.clockDuration(est.duskMargin) }) : t('plan.afterDusk'), est.beforeDusk ? 'sub estimate' : 'sub estimate bad'))
+          box.append(this.line(t('plan.brings', { list: this.lootList(est.loot) }), 'sub estimate'))
+        }
+      }
+    } else {
+      const est = p ? estimateJob(state, p, plan) : null
+      if (est) box.append(this.line(this.estimateText(plan, est), est.result === 'ok' ? 'sub estimate' : 'sub estimate bad'))
+      if (est?.danger) box.append(this.line(t('plan.danger'), 'sub estimate bad'))
+      ok = est?.result === 'ok'
+    }
     const run = (): void => {
       if (!this.who) return
       if (plan.kind === 'section') this.cb.assignSection(this.who, plan.sectionId, plan.op)
+      else if (plan.kind === 'expedition') this.cb.sendExpedition(this.who, plan.houseId)
       else this.cb.assignJob(this.who, plan.kind)
       this.plan = null
       this.lastSheetKey = ''
     }
     box.append(
-      this.button(t('plan.do'), '', run, true, !est || est.result !== 'ok'),
+      this.button(t(plan.kind === 'expedition' ? 'plan.send' : 'plan.do'), '', run, true, !ok),
       this.button(t('plan.cancel'), '', () => {
         this.plan = null
         this.lastSheetKey = ''
       }),
     )
     return box
+  }
+
+  /** An icon and a text in a top-bar field, rebuilt only when the text changes. */
+  private iconText(el: HTMLElement, icon: string, text: string): void {
+    if (el.dataset.v === text) return
+    el.dataset.v = text
+    el.innerHTML = ICONS[icon] ?? ''
+    el.append(text)
+  }
+
+  /** "4:50" for a span of minutes. */
+  private clockDuration(min: number): string {
+    const h = Math.floor(min / 60)
+    const m = Math.round(min - h * 60)
+    return `${h}:${String(m).padStart(2, '0')}`
   }
 
   private duration(min: number): string {
@@ -469,7 +616,7 @@ export class Hud {
   }
 
   private estimateText(plan: Plan, est: JobEstimate): string {
-    if (est.result !== 'ok') return t(`result.${est.result}`)
+    if (est.result !== 'ok' || plan.kind === 'expedition') return t(`result.${est.result}`)
     const parts = [t('plan.walk', { m: Math.round(est.walkMin) })]
     if (plan.kind === 'chop') parts.push(t('plan.chop', { t: this.duration(est.workMin), n: Math.round(est.wood) }))
     else if (plan.kind === 'saw') parts.push(t('plan.saw', { t: this.duration(est.workMin), n: Math.floor(est.boards) }))

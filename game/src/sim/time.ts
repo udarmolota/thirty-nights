@@ -101,3 +101,9 @@ export function darkness(totalMinutes: number): number {
   if (h < to + ramp) return (h - to) / ramp
   return 1
 }
+
+/** "13:40" for a game-minutes stamp (any day). */
+export function clockOf(totalMinutes: number): string {
+  const m = ((Math.round(totalMinutes) % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}

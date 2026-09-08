@@ -1,10 +1,11 @@
 /**
  * One simulation step = 10 game minutes. Order matters and is fixed:
- * clock -> morning -> stoves -> people -> heat -> siege -> defeat.
+ * clock -> morning -> stoves -> people -> expeditions -> heat -> siege -> defeat.
  */
 import { burnStoves, checkDefeat, tickMorning } from './economy'
 import { applyCold, computeTemps, type RoomTemps } from './heat'
 import { tickPerson } from './jobs'
+import { tickExpeditions } from './expedition'
 import { tickNight } from './night'
 import type { GameState } from './state'
 import { STEP_MIN } from './time'
@@ -21,8 +22,9 @@ export function simStep(state: GameState): StepInfo {
   tickMorning(state)
   burnStoves(state)
   for (const p of state.people) {
-    if (p.health > 0) tickPerson(state, p)
+    if (p.health > 0 && !p.away) tickPerson(state, p)
   }
+  tickExpeditions(state)
   const temps = computeTemps(state)
   applyCold(state, temps)
   tickNight(state)

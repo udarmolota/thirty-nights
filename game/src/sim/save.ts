@@ -10,6 +10,7 @@ import type { Section } from './sections'
 import { GameState, type NightState, type Resources, type Stove } from './state'
 import type { Cell } from '../world'
 import balance from '../data/balance.json'
+import type { House } from './village'
 
 export const SAVE_KEY = 'thirty-nights.save.v1'
 
@@ -25,6 +26,7 @@ interface PersonData {
   budgetMin: number
   sleeping: boolean
   home: Cell
+  away: Person['away']
 }
 
 export interface SaveData {
@@ -46,6 +48,7 @@ export interface SaveData {
   sawhorse: Cell
   gateOutside: Cell
   yardAnchor: Cell
+  houses: House[]
   night: Omit<NightState, 'yardVictims'> & { yardVictims: string[] }
   lastMorningDay: number
   hungryToday: boolean
@@ -79,6 +82,7 @@ export function serialize(state: GameState): SaveData {
       budgetMin: p.budgetMin,
       sleeping: p.sleeping,
       home: { ...p.home },
+      away: p.away,
     })),
     sections: state.sections,
     stoves: state.stoves,
@@ -86,6 +90,7 @@ export function serialize(state: GameState): SaveData {
     sawhorse: state.sawhorse,
     gateOutside: state.gateOutside,
     yardAnchor: state.yardAnchor,
+    houses: state.houses,
     night: { ...state.night, yardVictims: [...state.night.yardVictims] },
     lastMorningDay: state.lastMorningDay,
     hungryToday: state.hungryToday,
@@ -120,6 +125,7 @@ export function restore(data: SaveData): GameState {
     p.job = d.job
     p.budgetMin = d.budgetMin
     p.sleeping = d.sleeping
+    p.away = d.away ?? null
     return p
   })
   state.sections = data.sections
@@ -128,6 +134,7 @@ export function restore(data: SaveData): GameState {
   state.sawhorse = data.sawhorse
   state.gateOutside = data.gateOutside
   state.yardAnchor = data.yardAnchor
+  state.houses = data.houses ?? []
   state.night = { ...data.night, yardVictims: new Set(data.night.yardVictims) }
   state.lastMorningDay = data.lastMorningDay
   state.hungryToday = data.hungryToday
