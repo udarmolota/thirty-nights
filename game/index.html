@@ -42,6 +42,10 @@
         position: fixed;
         inset: 0;
       }
+      /* The hidden attribute beats any display rule below (the map, the sheet, the runners). */
+      [hidden] {
+        display: none !important;
+      }
       #game {
         display: block;
         width: 100%;
@@ -252,8 +256,29 @@
         border: 1px solid var(--line);
         border-radius: 6px;
       }
-      #sheet.empty {
-        background: rgba(14, 18, 32, 0.6);
+      #sheet .close {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 26px;
+        height: 26px;
+        border: 0;
+        background: none;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      #sheet .title {
+        padding-right: 24px;
+      }
+      .house.base {
+        cursor: default;
+        font-weight: 700;
+      }
+      .house.base img {
+        width: 40px;
+        height: 40px;
       }
       #sheet .title {
         font-weight: 700;
@@ -340,6 +365,16 @@
         padding-top: 6px;
         border-top: 1px solid var(--line);
       }
+      /* OK and Cancel side by side under a plan. */
+      .confirm {
+        display: flex;
+        gap: 6px;
+      }
+      .confirm .action {
+        flex: 1;
+        align-items: center;
+        min-height: 30px;
+      }
       .estimate {
         color: var(--accent-2);
       }
@@ -389,7 +424,7 @@
         align-items: center;
         justify-content: center;
         background: rgba(8, 10, 20, 0.92);
-        padding: calc(var(--sat) + 40px) 250px 40px 100px;
+        padding: calc(var(--sat) + 40px) 100px 40px 100px;
         box-sizing: border-box;
       }
       #villageMap {
@@ -472,6 +507,11 @@
         gap: 6px;
         pointer-events: none;
         z-index: 5;
+      }
+      .toast .x {
+        margin-left: 10px;
+        color: var(--muted);
+        font-weight: 400;
       }
       .toast {
         pointer-events: auto;

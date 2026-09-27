@@ -26,11 +26,12 @@ describe('expeditions', () => {
     const state = fresh()
     const [ivan, marta] = state.people
     const near = state.houses.find((h) => h.id === 'r1')!
-    expect(tripMinutes(ivan!, near)).toBe(2 * 30 + 60)
-    expect(tripMinutes(marta!, near)).toBe(Math.round(120 / 1.3))
+    const trip = 2 * near.travelMin + village.searchMinutes
+    expect(tripMinutes(ivan!, near)).toBe(trip)
+    expect(tripMinutes(marta!, near)).toBe(Math.round(trip / 1.3))
     const est = estimateExpedition(state, ivan!, near)
     expect(est.result).toBe('ok')
-    expect(est.returnAt).toBe(state.totalMinutes + 120)
+    expect(est.returnAt).toBe(state.totalMinutes + trip)
     expect(est.beforeDusk).toBe(true)
     // The clinic is three hours away: Ivan would be back at 16:00 + - after the light.
     const clinic = state.houses.find((h) => h.id === 'clinic')!
@@ -53,12 +54,13 @@ describe('expeditions', () => {
     near.danger = 0
     const budget = ivan.budgetMin
     const food = state.res.food
+    const steps = (2 * near.travelMin + village.searchMinutes) / 10
     expect(sendExpedition(state, ivan, near.id)).toBe('ok')
     expect(ivan.away?.houseId).toBe(near.id)
-    expect(ivan.budgetMin).toBe(budget - 120)
-    for (let i = 0; i < 11; i++) simStep(state)
+    expect(ivan.budgetMin).toBe(budget - steps * 10)
+    for (let i = 0; i < steps - 1; i++) simStep(state)
     expect(ivan.away).not.toBeNull()
-    simStep(state) // 120 minutes: back
+    simStep(state) // the last step of the trip: back
     expect(ivan.away).toBeNull()
     expect(state.res.food).toBe(food + 6)
     expect(state.res.boards).toBeGreaterThan(12)
@@ -67,7 +69,7 @@ describe('expeditions', () => {
     expect(state.events.some((e) => e.type === 'expeditionReturn' && e.personId === 'ivan' && !e.hurt)).toBe(true)
     // A second trip takes what is left, and the house is done.
     expect(sendExpedition(state, ivan, near.id)).toBe('ok')
-    for (let i = 0; i < 12; i++) simStep(state)
+    for (let i = 0; i < steps; i++) simStep(state)
     expect(isLooted(near)).toBe(true)
     expect(estimateExpedition(state, ivan, near).result).toBe('nothingToDo')
   })

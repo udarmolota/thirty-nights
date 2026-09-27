@@ -38,6 +38,8 @@ export interface HudCallbacks {
   sendExpedition: (personId: string, houseId: string) => void
   /** A house was tapped on the map (null = the map was closed or a tap on nothing). */
   selectHouse: (houseId: string | null) => void
+  /** The sheet's cross: drop the selection. */
+  deselect: () => void
 }
 
 export type SheetTarget =
@@ -162,7 +164,19 @@ export class Hud {
     const key = state.houses.map((x) => `${x.id}:${isLooted(x)}:${x.visited}:${x.id === selectedId}`).join('|') + '#' + state.people.map((p) => (p.away ? `${p.id}@${p.away.returnAt}` : '')).join()
     if (key === this.lastMapKey) return
     this.lastMapKey = key
+    // The base itself, a plain mark in its fence (not a place to send anyone).
+    const base = document.createElement('div')
+    base.className = 'house base'
+    base.style.left = '15.7%'
+    base.style.top = '45%'
+    const baseImg = document.createElement('img')
+    baseImg.src = './art/icon_house.png'
+    baseImg.alt = ''
+    const baseLabel = document.createElement('span')
+    baseLabel.textContent = t('marker.base')
+    base.append(baseImg, baseLabel)
     this.villageMap.replaceChildren(
+      base,
       ...state.houses.map((house) => {
         const b = document.createElement('button')
         const looted = isLooted(house)
@@ -378,6 +392,11 @@ export class Hud {
     // Nothing selected: no panel at all, the map is the interface.
     this.sheet.hidden = target.kind === 'none'
     if (target.kind === 'none') return
+    const close = document.createElement('button')
+    close.className = 'close'
+    close.textContent = '×'
+    close.addEventListener('click', () => this.cb.deselect())
+    this.sheet.appendChild(close)
     if (target.kind === 'person') this.personSheet(state, temps, target.id)
     else if (target.kind === 'section') this.sectionSheet(state, target.id)
     else if (target.kind === 'stove') this.stoveSheet(state, temps, target.id)
@@ -583,13 +602,16 @@ export class Hud {
       this.plan = null
       this.lastSheetKey = ''
     }
-    box.append(
-      this.button(t(plan.kind === 'expedition' ? 'plan.send' : 'plan.do'), '', run, true, !ok),
+    const row = document.createElement('div')
+    row.className = 'confirm'
+    row.append(
+      this.button(t('plan.ok'), '', run, true, !ok),
       this.button(t('plan.cancel'), '', () => {
         this.plan = null
         this.lastSheetKey = ''
       }),
     )
+    box.append(row)
     return box
   }
 
@@ -645,6 +667,10 @@ export class Hud {
     const d = document.createElement('div')
     d.className = `toast ${cls}`
     d.textContent = text
+    const x = document.createElement('span')
+    x.className = 'x'
+    x.textContent = '×'
+    d.appendChild(x)
     d.addEventListener('click', () => d.remove())
     this.toasts.appendChild(d)
     setTimeout(() => d.remove(), 6000)

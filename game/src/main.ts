@@ -112,6 +112,10 @@ function main(): void {
       sel = houseId ? { kind: 'house', id: houseId } : { kind: null, id: 0 }
       note = ''
     },
+    deselect: () => {
+      sel = { kind: null, id: 0 }
+      note = ''
+    },
     toggleStove: (index) => {
       const st = state.stoves[index]
       if (!st) return
